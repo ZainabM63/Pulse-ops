@@ -3,7 +3,7 @@
   <h1>PULSE // OPS</h1>
   <p><strong>Real-Time Mission-Critical Incident Response & Infrastructure Telemetry Platform</strong></p>
 
-  [![Stack](https://img.shields.io/badge/Stack-Next.js_14_|_Laravel_11-amber?style=for-the-badge)](https://github.com/ZainabM63/Pulse-ops)
+  [![Stack](https://img.shields.io/badge/Stack-Next.js_14_|_Laravel_13-amber?style=for-the-badge)](https://github.com/ZainabM63/Pulse-ops)
   [![Database](https://img.shields.io/badge/Database-PostgreSQL_|_Redis-blue?style=for-the-badge)](#)
   [![Real-Time](https://img.shields.io/badge/WebSockets-Laravel_Reverb-emerald?style=for-the-badge)](#)
   [![License](https://img.shields.io/badge/License-MIT-slate?style=for-the-badge)](#)
