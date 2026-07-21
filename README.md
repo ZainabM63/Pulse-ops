@@ -65,7 +65,7 @@
 
 ---
 
-### 1. Backend Setup (Laravel API)
+### Backend Setup (Laravel API)
 
 ```bash
 # Clone repository
