@@ -1,58 +1,107 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+<div align="center">
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+  <h1>PULSE // OPS</h1>
+  <p><strong>Real-Time Mission-Critical Incident Response & Infrastructure Telemetry Platform</strong></p>
 
-## About Laravel
+  [![Stack](https://img.shields.io/badge/Stack-Next.js_14_|_Laravel_11-amber?style=for-the-badge)](https://github.com/ZainabM63/Pulse-ops)
+  [![Database](https://img.shields.io/badge/Database-PostgreSQL_|_Redis-blue?style=for-the-badge)](#)
+  [![Real-Time](https://img.shields.io/badge/WebSockets-Laravel_Reverb-emerald?style=for-the-badge)](#)
+  [![License](https://img.shields.io/badge/License-MIT-slate?style=for-the-badge)](#)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+  <br />
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+  <p>
+    An enterprise-grade B2B command center designed for engineering teams to monitor microservice SLAs, triage outages, manage on-call rotations, and collaborate in real-time Incident War Rooms.
+  </p>
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+</div>
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## 📸 Key Interfaces & System Design
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+| View | Capabilities |
+| :--- | :--- |
+| **Incident Command Matrix** | Real-time outage triage, impact blast-radius calculators, MTTR/MTTA metrics, and monospace telemetry log stream. |
+| **Digital War Room** | Multi-user presence indicators, live websocket chat, terminal slash commands (`/ack`, `/escalate`), and audio voice notes. |
+| **Teams & On-Call Hub** | Visual rotation shift schedules, automated multi-level escalation policies, and fatigue index tracking. |
+| **Service Health Registry** | Service SLO error budget depletion rate trackers, latency ticks, and circuit breaker status monitoring. |
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+---
 
-## Agentic Development
+## ✨ Architectural Features & High-Value Capabilities
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### 🎙️ 1. Real-Time Collaboration & Audio Messaging
+* **In-Room Voice Notes:** Record and stream `.webm` voice memos inside the Incident War Room using the browser's native `MediaRecorder` API and Laravel Reverb WebSockets.
+* **Dispatch Voice Announcer:** Hands-free audible synthesized voice alerts (`SpeechSynthesisUtterance`) for critical P0 emergency arrivals.
+* **Terminal Command Palette (`/command`):** Execute server remediation scripts directly from the War Room prompt (`/ack`, `/p1`, `/runbook restart-pods`).
+
+### ⚙️ 2. Enterprise Infrastructure Management
+* **SLO & Error Budget Drain Tracker:** Real-time mathematical tracking of service reliability targets (`99.9%`) and active error budget depletion.
+* **On-Call Fatigue Analytics:** Calculates off-hours alert frequencies to monitor team workload and prevent engineer burnout.
+* **Shift Handover Audit Logs:** Asynchronous shift transition logs between outgoing primary responders and incoming secondary engineers.
+
+### ⚡ 3. Real-Time Telemetry & Async Processing
+* **Event-Driven WebSockets:** Powered by **Laravel Reverb** for instant state synchronization across all connected clients without browser polling.
+* **Background Queue Pipeline:** Asynchronous job delegation via **Laravel Queues & Redis** for automated escalation timeouts and email/Slack dispatches.
+
+---
+
+## 🛠️ Tech Stack & System Architecture
+┌───────────────────────────────┐
+                   │        Client Browser         │
+                   └───────────────┬───────────────┘
+                                   │
+               ┌───────────────────┴───────────────────┐
+               │                                       │
+               ▼ (HTTPS)                               ▼ (HTTPS & WebSockets)
+   ┌───────────────────────┐               ┌───────────────────────┐
+   │   Next.js 14 (App)    │               │  Headless Laravel API │
+   │  (Vercel CDN Edge)    │               │  (PHP 8.3 Engine)     │
+   └───────────────────────┘               └───────────┬───────────┘
+                                                       │
+                                       ┌───────────────┼───────────────┐
+                                       ▼               ▼               ▼
+                                  PostgreSQL         Redis       Laravel Reverb
+                                  (Database)        (Queues)      (WebSockets)
+
+* **Frontend:** Next.js 14 (App Router), TypeScript, React, Tailwind CSS, Lucide Icons, `next-themes` (Dual Light/Dark Mode).
+* **Backend:** Laravel 13 API, Laravel Sanctum (Stateless Token Auth), Laravel Reverb (WebSocket Broadcaster), Laravel Queues (Redis Driver).
+* **Database & Caching:** PostgreSQL / MySQL, Redis (Session/Queue/Cache Store).
+
+---
+
+## 🚀 Local Development Setup
+
+### Prerequisites
+* **Node.js** >= 18.x
+* **PHP** >= 8.3
+* **Composer**
+* **Redis** (Local or Docker)
+
+---
+
+### 1. Backend Setup (Laravel API)
 
 ```bash
-composer require laravel/boost --dev
+# Clone repository
+git clone [https://github.com/ZainabM63/Pulse-ops.git](https://github.com/ZainabM63/Pulse-ops.git)
+cd Pulse-ops
 
-php artisan boost:install
-```
+# Install PHP dependencies
+composer install
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+# Environment configuration
+cp .env.example .env
+php artisan key:generate
 
-## Contributing
+# Configure database & run migrations
+php artisan migrate --seed
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+# Create storage link for audio voice notes
+php artisan storage:link
 
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# Start development servers
+php artisan serve
+php artisan queue:work
+php artisan reverb:start
