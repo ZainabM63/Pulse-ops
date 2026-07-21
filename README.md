@@ -48,22 +48,6 @@
 ---
 
 ## 🛠️ Tech Stack & System Architecture
-┌───────────────────────────────┐
-                   │        Client Browser         │
-                   └───────────────┬───────────────┘
-                                   │
-               ┌───────────────────┴───────────────────┐
-               │                                       │
-               ▼ (HTTPS)                               ▼ (HTTPS & WebSockets)
-   ┌───────────────────────┐               ┌───────────────────────┐
-   │   Next.js 14 (App)    │               │  Headless Laravel API │
-   │  (Vercel CDN Edge)    │               │  (PHP 8.3 Engine)     │
-   └───────────────────────┘               └───────────┬───────────┘
-                                                       │
-                                       ┌───────────────┼───────────────┐
-                                       ▼               ▼               ▼
-                                  PostgreSQL         Redis       Laravel Reverb
-                                  (Database)        (Queues)      (WebSockets)
 
 * **Frontend:** Next.js 14 (App Router), TypeScript, React, Tailwind CSS, Lucide Icons, `next-themes` (Dual Light/Dark Mode).
 * **Backend:** Laravel 13 API, Laravel Sanctum (Stateless Token Auth), Laravel Reverb (WebSocket Broadcaster), Laravel Queues (Redis Driver).
@@ -105,3 +89,19 @@ php artisan storage:link
 php artisan serve
 php artisan queue:work
 php artisan reverb:start
+
+# Navigate to frontend folder
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Environment configuration (.env.local)
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_REVERB_APP_KEY=your-reverb-key
+NEXT_PUBLIC_REVERB_HOST=localhost
+NEXT_PUBLIC_REVERB_PORT=8080
+NEXT_PUBLIC_REVERB_SCHEME=http
+
+# Run Next.js dev server
+npm run dev
