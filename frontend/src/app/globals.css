@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/* ─── Light Theme (default) ─── */
+:root {
+  --bg-canvas: #FFFFFF;
+  --bg-surface: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --bg-elevated: #F1F5F9;
+  --bg-hover: #F1F5F9;
+
+  --border-default: #E2E8F0;
+  --border-subtle: #F1F5F9;
+
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+
+  --accent-primary: #F59E0B;
+  --accent-primary-hover: #D97706;
+  --accent-primary-fg: #FFFFFF;
+
+  --status-critical: #EF4444;
+  --status-critical-bg: #FEF2F2;
+  --status-major: #F97316;
+  --status-major-bg: #FFF7ED;
+  --status-minor: #EAB308;
+  --status-minor-bg: #FEFCE8;
+  --status-info: #3B82F6;
+  --status-info-bg: #EFF6FF;
+
+  --status-healthy: #10B981;
+  --status-degraded: #F59E0B;
+  --status-outage: #EF4444;
+
+  --surface-code: #F1F5F9;
+  --text-code: #0F172A;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ─── Dark Theme ─── */
+.dark {
+  --bg-canvas: #020617;
+  --bg-surface: #0F172A;
+  --bg-card: #0F172A;
+  --bg-elevated: #1E293B;
+  --bg-hover: #1E293B;
+
+  --border-default: #1E293B;
+  --border-subtle: #1E293B;
+
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+
+  --accent-primary: #F59E0B;
+  --accent-primary-hover: #FBBF24;
+  --accent-primary-fg: #000000;
+
+  --status-critical: #EF4444;
+  --status-critical-bg: #450A0A;
+  --status-major: #F97316;
+  --status-major-bg: #431407;
+  --status-minor: #EAB308;
+  --status-minor-bg: #422006;
+  --status-info: #3B82F6;
+  --status-info-bg: #1E3A5F;
+
+  --status-healthy: #10B981;
+  --status-degraded: #F59E0B;
+  --status-outage: #EF4444;
+
+  --surface-code: #1E293B;
+  --text-code: #E2E8F0;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
+}
+
+/* ─── Tailwind v4 Theme Tokens ─── */
+@theme inline {
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-card: var(--bg-card);
+  --color-elevated: var(--bg-elevated);
+  --color-hover-row: var(--bg-hover);
+
+  --color-border: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-fg-primary: var(--text-primary);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+
+  --color-amber: var(--accent-primary);
+  --color-amber-hover: var(--accent-primary-hover);
+  --color-amber-fg: var(--accent-primary-fg);
+
+  --color-critical: var(--status-critical);
+  --color-critical-bg: var(--status-critical-bg);
+  --color-major: var(--status-major);
+  --color-major-bg: var(--status-major-bg);
+  --color-minor: var(--status-minor);
+  --color-minor-bg: var(--status-minor-bg);
+  --color-info: var(--status-info);
+  --color-info-bg: var(--status-info-bg);
+
+  --color-healthy: var(--status-healthy);
+  --color-degraded: var(--status-degraded);
+  --color-outage: var(--status-outage);
+
+  --color-code-bg: var(--surface-code);
+  --color-code-fg: var(--text-code);
+
+  /* Keep legacy color names for migration */
+  --color-ember: var(--accent-primary);
+  --color-crimson: var(--status-critical);
+  --color-gold: var(--accent-primary);
+  --color-acid-green: var(--status-healthy);
+  --color-muted-gray: var(--text-muted);
+  --color-pitch-black: var(--bg-canvas);
+  --color-onyx: var(--bg-surface);
+  --color-carbon: var(--bg-elevated);
+
+  --font-sans: var(--font-jetbrains);
+  --font-mono: var(--font-jetbrains);
+}
+
+/* ─── Base Styles ─── */
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) var(--bg-surface);
+}
+
+::selection {
+  background: rgba(245, 158, 11, 0.3);
+  color: var(--text-primary);
+}
+
+/* ─── Animations ─── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 12px rgba(16, 185, 129, 0.8); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes glow-crimson {
+  0%, 100% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.6); }
+}
+
+.glow-crimson {
+  animation: glow-crimson 2s ease-in-out infinite;
+}
+
+@keyframes glow-amber {
+  0%, 100% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(245, 158, 11, 0.7); }
+}
+
+.glow-amber {
+  animation: glow-amber 2s ease-in-out infinite;
+}
+
+/* Keep legacy class name */
+.glow-ember {
+  animation: glow-amber 2s ease-in-out infinite;
+}
