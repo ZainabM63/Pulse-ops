@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 import type { Team, PaginatedResponse, TeamCardData } from "@/types";
 import { TeamCard } from "@/components/teams/TeamCard";
 import { HandoffModal } from "@/components/teams/HandoffModal";
+import { CreateTeamModal } from "@/components/teams/CreateTeamModal";
+import { YourTeamsModal } from "@/components/teams/YourTeamsModal";
 import {
-  Users, Plus, Download, Shield, Clock, Activity, AlertTriangle, Zap
+  Users, Plus, Download, Shield, Clock, Activity, ChevronDown, FileText, Calendar, List
 } from "lucide-react";
 
 const MOCK_TEAMS: TeamCardData[] = [
@@ -102,15 +104,116 @@ const MOCK_TEAMS: TeamCardData[] = [
   },
 ];
 
+function downloadBlob(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCSV() {
+  const headers = ["Team Name", "Slug", "Primary On-Call", "Backup On-Call", "Shift Start", "Shift End", "SLA (Primary)", "Escalation Policy", "Handover Note"];
+  const rows = MOCK_TEAMS.map((t) => {
+    const primary = t.onCall.find((o) => o.role === "primary");
+    const backup = t.onCall.find((o) => o.role === "backup");
+    const escalation = t.escalationSteps.map((s) => `${s.delay} -> ${s.target} (${s.channel})`).join(" | ");
+    return [
+      t.name,
+      t.slug,
+      primary?.user.name ?? "",
+      backup?.user.name ?? "",
+      primary?.shiftStart ?? "",
+      primary?.shiftEnd ?? "",
+      primary?.sla ?? "",
+      escalation,
+      t.handover.message,
+    ];
+  });
+  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+  downloadBlob(csv, "shift-schedule.csv", "text/csv;charset=utf-8;");
+}
+
+function exportICS() {
+  const now = new Date();
+  const today = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+  const events = MOCK_TEAMS.map((t) => {
+    const primary = t.onCall.find((o) => o.role === "primary");
+    const backup = t.onCall.find((o) => o.role === "backup");
+
+    const [startH, startM] = (primary?.shiftStart ?? "09:00").split(":").map(Number);
+    const [endH, endM] = (primary?.shiftEnd ?? "21:00").split(":").map(Number);
+
+    const dtStart = new Date(now);
+    dtStart.setHours(startH, startM, 0, 0);
+    const dtEnd = new Date(now);
+    dtEnd.setHours(endH, endM, 0, 0);
+    if (dtEnd <= dtStart) dtEnd.setDate(dtEnd.getDate() + 1);
+
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+    const escalation = t.escalationSteps.map((s) => `${s.delay} -> ${s.target} (${s.channel})`).join("\\n");
+    const description = `Primary: ${primary?.user.name ?? "N/A"}\\nBackup: ${backup?.user.name ?? "N/A"}\\nSLA: ${primary?.sla ?? "N/A"}\\nEscalation:\\n${escalation}`;
+
+    return [
+      "BEGIN:VEVENT",
+      `DTSTART:${fmt(dtStart)}`,
+      `DTEND:${fmt(dtEnd)}`,
+      `SUMMARY:${t.name} — On-Call (${primary?.user.name ?? "TBD"})`,
+      `DESCRIPTION:${description}`,
+      `UID:${t.slug}-${today}@pulseops`,
+      `DTSTAMP:${today}`,
+      "END:VEVENT",
+    ].join("\r\n");
+  });
+
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//PulseOps//Shift Schedule//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    ...events,
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  downloadBlob(ics, "shift-schedule.ics", "text/calendar;charset=utf-8;");
+}
+
 export default function TeamsPage() {
   const [apiTeams, setApiTeams] = useState<Team[]>([]);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamCardData | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [teamsModalOpen, setTeamsModalOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  const fetchTeams = () => {
+    api.get<PaginatedResponse<Team>>("/teams").then((res) => setApiTeams(res.data)).catch(console.error);
+  };
 
   useEffect(() => {
-    api.get<PaginatedResponse<Team>>("/teams").then((res) => setApiTeams(res.data)).catch(console.error);
+    fetchTeams();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    if (exportOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [exportOpen]);
 
   const handleHandoff = (teamId: number) => {
     const team = MOCK_TEAMS.find((t) => t.id === teamId);
@@ -125,6 +228,13 @@ export default function TeamsPage() {
       ? `Handoff submitted and pager token transferred.`
       : `Handoff submitted for ${selectedTeam?.name}.`;
     setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleTeamCreated = () => {
+    setCreateModalOpen(false);
+    fetchTeams();
+    setToast("Team created successfully.");
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -144,11 +254,55 @@ export default function TeamsPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <button className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary">
-            <Download className="h-3 w-3" />
-            Export Shift Schedule
+          {/* Export Dropdown */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen(!exportOpen)}
+              className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+            >
+              <Download className="h-3 w-3" />
+              Export Shift Schedule
+              <ChevronDown className="h-2.5 w-2.5" />
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded border border-border bg-card shadow-lg shadow-black/20">
+                <button
+                  onClick={() => { exportCSV(); setExportOpen(false); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[10px] text-fg-primary transition-colors hover:bg-hover-row"
+                >
+                  <FileText className="h-3 w-3 text-healthy" />
+                  Export as CSV
+                </button>
+                <button
+                  onClick={() => { exportICS(); setExportOpen(false); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[10px] text-fg-primary transition-colors hover:bg-hover-row"
+                >
+                  <Calendar className="h-3 w-3 text-info" />
+                  Export as ICS Calendar
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Show Teams Button */}
+          <button
+            onClick={() => setTeamsModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+          >
+            <List className="h-3 w-3" />
+            Show Teams
+            {apiTeams.length > 0 && (
+              <span className="ml-0.5 rounded-full bg-amber/20 px-1.5 py-0.5 text-[8px] font-bold text-amber">
+                {apiTeams.length}
+              </span>
+            )}
           </button>
-          <button className="inline-flex items-center gap-1.5 rounded bg-amber px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-fg transition-colors hover:bg-amber-hover">
+
+          {/* Create Team Button */}
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded bg-amber px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-fg transition-colors hover:bg-amber-hover"
+          >
             <Plus className="h-3 w-3" />
             Create Team
           </button>
@@ -162,7 +316,7 @@ export default function TeamsPage() {
             <span className="text-[9px] uppercase tracking-widest text-fg-muted">Active Teams</span>
             <Users className="h-3.5 w-3.5 text-fg-muted" />
           </div>
-          <p className="mt-1 text-2xl font-bold text-fg-primary">{MOCK_TEAMS.length}</p>
+          <p className="mt-1 text-2xl font-bold text-fg-primary">{MOCK_TEAMS.length + apiTeams.length}</p>
         </div>
         <div className="rounded border border-border bg-surface px-4 py-3">
           <div className="flex items-center justify-between">
@@ -196,6 +350,20 @@ export default function TeamsPage() {
           <TeamCard key={team.id} team={team} onHandoff={handleHandoff} />
         ))}
       </div>
+
+      {/* Create Team Modal */}
+      <CreateTeamModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onCreated={handleTeamCreated}
+      />
+
+      {/* Your Teams Modal */}
+      <YourTeamsModal
+        open={teamsModalOpen}
+        teams={apiTeams}
+        onClose={() => setTeamsModalOpen(false)}
+      />
 
       {/* Handoff Modal */}
       {selectedTeam && (

@@ -10,7 +10,17 @@ export interface Team {
   id: number;
   name: string;
   slug: string;
+  description: string | null;
+  users?: TeamMember[];
   created_at: string;
+}
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  avatar_url: string | null;
 }
 
 export interface User {

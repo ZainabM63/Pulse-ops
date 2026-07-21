@@ -11,7 +11,7 @@ class Team extends Model
 {
     use BelongsToCompany;
 
-    protected $fillable = ['company_id', 'name', 'slug'];
+    protected $fillable = ['company_id', 'name', 'slug', 'description'];
 
     public function users(): HasMany
     {

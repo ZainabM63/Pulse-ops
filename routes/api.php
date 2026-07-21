@@ -19,6 +19,7 @@ Route::prefix('v1')->group(function () {
 
         Route::apiResource('incidents', IncidentController::class);
         Route::apiResource('services', ServiceController::class);
-        Route::apiResource('teams', TeamController::class)->only(['index', 'show']);
+        Route::get('/teams/users', [TeamController::class, 'users']);
+        Route::apiResource('teams', TeamController::class)->only(['index', 'show', 'store']);
     });
 });

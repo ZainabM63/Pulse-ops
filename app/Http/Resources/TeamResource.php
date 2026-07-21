@@ -13,6 +13,8 @@ class TeamResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'slug' => $this->slug,
+            'description' => $this->description,
+            'users' => UserResource::collection($this->whenLoaded('users')),
             'created_at' => $this->created_at,
         ];
     }
