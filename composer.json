@@ -8,7 +8,6 @@
     "require": {
         "php": "^8.3",
         "ext-pdo": "*",
-        "ext-pdo_mysql": "*",
         "laravel/framework": "^13.8",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.0",
