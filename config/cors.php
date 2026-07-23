@@ -18,7 +18,10 @@ return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
 
     'allowed_methods' => ['*'],
-
+     'allowed_origins' => [
+        'https://pulse-opsll.netlify.app',
+        'http://localhost:3000', // Optional: keeps local dev working
+    ],
     'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
