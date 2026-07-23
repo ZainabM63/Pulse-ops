@@ -17,11 +17,14 @@ foreach ($storageFolders as $folder) {
     }
 }
 
-// 2. Override storage paths and force logging to stderr
+// 2. Force Environment Variables BEFORE Laravel Boots
 $_ENV['APP_STORAGE'] = $tmpStorage;
 $_ENV['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
 $_ENV['LOG_CHANNEL'] = 'stderr';
-$_ENV['LOG_STDERR_FORMATTER'] = 'Monolog\Formatter\LineFormatter';
+
+$_SERVER['APP_STORAGE'] = $tmpStorage;
+$_SERVER['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
+$_SERVER['LOG_CHANNEL'] = 'stderr';
 
 putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
