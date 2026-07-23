@@ -1,6 +1,6 @@
 <?php
 
-// 1. Force dynamic storage paths to use Vercel's writable /tmp directory
+// 1. Prepare temporary writable storage folders in /tmp
 $tmpStorage = '/tmp/storage';
 
 $storageFolders = [
@@ -17,11 +17,15 @@ foreach ($storageFolders as $folder) {
     }
 }
 
-// 2. Set environment overrides dynamically before booting Laravel
+// 2. Override storage paths and force logging to stderr
 $_ENV['APP_STORAGE'] = $tmpStorage;
 $_ENV['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
+$_ENV['LOG_CHANNEL'] = 'stderr';
+$_ENV['LOG_STDERR_FORMATTER'] = 'Monolog\Formatter\LineFormatter';
+
 putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
+putenv("LOG_CHANNEL=stderr");
 
-// 3. Require the standard Laravel entry point
+// 3. Delegate to standard Laravel public handler
 require __DIR__ . '/../public/index.php';
