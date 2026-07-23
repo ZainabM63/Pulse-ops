@@ -31,28 +31,4 @@ putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
 putenv("LOG_CHANNEL=stderr");
 
-// Load Composer Autoloader and Bootstrap App manually to capture exact error
-require __DIR__ . '/../vendor/autoload.php';
-
-try {
-    $app = require_once __DIR__ . '/../bootstrap/app.php';
-
-    $kernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
-
-    $request = \Illuminate\Http\Request::capture();
-    $response = $kernel->handle($request);
-
-    $response->send();
-    $kernel->terminate($request, $response);
-
-} catch (\Throwable $e) {
-    header('Content-Type: application/json', true, 500);
-    echo json_encode([
-        'root_cause_message' => $e->getMessage(),
-        'root_cause_file' => $e->getFile(),
-        'root_cause_line' => $e->getLine(),
-        'root_cause_class' => get_class($e),
-        'trace' => explode("\n", $e->getTraceAsString()),
-    ], JSON_PRETTY_PRINT);
-    exit;
-}
+require __DIR__ . '/../public/index.php';

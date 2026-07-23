@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 $app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -16,18 +17,9 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // Intercept any Throwable before Laravel tries to use Blade or Response factories
-        $exceptions->render(function (\Throwable $e) {
-            header('Content-Type: application/json', true, 500);
-            echo json_encode([
-                'real_underlying_error' => $e->getMessage(),
-                'error_type' => get_class($e),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => explode("\n", $e->getTraceAsString()),
-            ], JSON_PRETTY_PRINT);
-            exit;
-        });
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request) => $request->is('api/*'),
+        );
     })->create();
 
 $app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
