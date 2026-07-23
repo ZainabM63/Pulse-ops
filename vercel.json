@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": null,
+  "buildCommand": "echo 'Skipping composer'",
    "framework": null,
   "outputDirectory": null,
   "functions": {
