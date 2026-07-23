@@ -17,12 +17,10 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
-        );
+        // Prevent Blade view rendering on errors to avoid "Facade root not set" crashes
+        $exceptions->shouldRenderJsonWhen(fn () => true);
     })->create();
 
-// Set the storage path on the created Application instance
 $app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
 
 return $app;
