@@ -1,6 +1,5 @@
 <?php
 
-// 1. Hide deprecation notices so they don't corrupt headers/booting
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 ini_set('display_errors', '0');
 
@@ -20,7 +19,6 @@ foreach ($storageFolders as $folder) {
     }
 }
 
-// 2. Explicitly set LOG_CHANNEL to 'stderr' everywhere
 $_ENV['APP_STORAGE'] = $tmpStorage;
 $_ENV['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
 $_ENV['LOG_CHANNEL'] = 'stderr';
@@ -36,12 +34,16 @@ putenv("LOG_CHANNEL=stderr");
 try {
     require __DIR__ . '/../public/index.php';
 } catch (\Throwable $e) {
+    // Unpack inner exception if present
+    $actualError = $e->getPrevious() ?? $e;
+
     header('Content-Type: application/json', true, 500);
     echo json_encode([
         'error' => 'Early Boot Failure',
-        'message' => $e->getMessage(),
-        'file' => $e->getFile(),
-        'line' => $e->getLine(),
+        'real_message' => $actualError->getMessage(),
+        'real_file' => $actualError->getFile(),
+        'real_line' => $actualError->getLine(),
+        'trace' => explode("\n", $actualError->getTraceAsString()),
     ], JSON_PRETTY_PRINT);
     exit;
 }

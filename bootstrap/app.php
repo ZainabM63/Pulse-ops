@@ -6,6 +6,11 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 
 $app = Application::configure(basePath: dirname(__DIR__))
+    ->withProviders([
+        \Illuminate\View\ViewServiceProvider::class,
+        \Illuminate\Events\EventServiceProvider::class,
+        \Illuminate\Log\LogServiceProvider::class,
+    ])
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -17,8 +22,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // Prevent Blade view rendering on errors to avoid "Facade root not set" crashes
-        $exceptions->shouldRenderJsonWhen(fn () => true);
+        $exceptions->shouldRenderJsonWhen(fn (Request $request) => true);
     })->create();
 
 $app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
