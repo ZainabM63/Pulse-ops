@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": null,
+  "buildCommand": "echo 'skip build' ",
    "framework": null,
   "outputDirectory": ".",
   "functions": {
