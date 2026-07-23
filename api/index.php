@@ -1,36 +1,40 @@
 <?php
 
-$storageFolders = [
-    '/tmp/storage/app/public',
-    '/tmp/storage/framework/cache/data',
-    '/tmp/storage/framework/cache/lock',
-    '/tmp/storage/framework/sessions',
-    '/tmp/storage/framework/views',
-    '/tmp/storage/logs',
-];
+function rrmdir($dir) {
+    if (!is_dir($dir)) return;
+    $objects = scandir($dir);
+    foreach ($objects as $object) {
+        if ($object === '.' || $object === '..') continue;
+        $path = $dir . '/' . $object;
+        is_dir($path) ? rrmdir($path) : unlink($path);
+    }
+    rmdir($dir);
+}
 
+$tmpStorage = '/tmp/storage';
+$storageFolders = [
+    "$tmpStorage/app/public",
+    "$tmpStorage/app/private",
+    "$tmpStorage/framework/cache/data",
+    "$tmpStorage/framework/cache/lock",
+    "$tmpStorage/framework/sessions",
+    "$tmpStorage/framework/views",
+    "$tmpStorage/logs",
+];
 foreach ($storageFolders as $folder) {
     if (!is_dir($folder)) {
         mkdir($folder, 0755, true);
     }
 }
 
-$links = [
-    __DIR__ . '/../storage' => '/tmp/storage',
-];
-
-foreach ($links as $link => $target) {
-    if (file_exists($link)) {
-        if (is_link($link)) {
-            continue;
-        }
-        if (is_dir($link)) {
-            rmdir($link);
-        } else {
-            unlink($link);
-        }
-    }
-    symlink($target, $link);
+$storageLink = __DIR__ . '/../storage';
+if (is_link($storageLink)) {
+    // already symlinked
+} elseif (is_dir($storageLink)) {
+    rrmdir($storageLink);
+    symlink($tmpStorage, $storageLink);
+} else {
+    symlink($tmpStorage, $storageLink);
 }
 
 require __DIR__ . '/../public/index.php';
