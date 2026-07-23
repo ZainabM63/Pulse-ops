@@ -24,4 +24,15 @@ putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
 putenv("LOG_CHANNEL=stderr");
 
-require __DIR__ . '/../public/index.php';
+try {
+    require __DIR__ . '/../public/index.php';
+} catch (\Throwable $e) {
+    header('Content-Type: application/json', true, 500);
+    echo json_encode([
+        'error' => 'Early Boot Failure',
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+    ], JSON_PRETTY_PRINT);
+    exit;
+}
