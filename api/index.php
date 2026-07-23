@@ -1,5 +1,9 @@
 <?php
 
+// 1. Hide deprecation notices so they don't corrupt headers/booting
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+ini_set('display_errors', '0');
+
 $tmpStorage = '/tmp/storage';
 
 $storageFolders = [
@@ -16,9 +20,14 @@ foreach ($storageFolders as $folder) {
     }
 }
 
+// 2. Explicitly set LOG_CHANNEL to 'stderr' everywhere
 $_ENV['APP_STORAGE'] = $tmpStorage;
 $_ENV['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
 $_ENV['LOG_CHANNEL'] = 'stderr';
+
+$_SERVER['APP_STORAGE'] = $tmpStorage;
+$_SERVER['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
+$_SERVER['LOG_CHANNEL'] = 'stderr';
 
 putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
