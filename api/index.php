@@ -1,6 +1,5 @@
 <?php
 
-// 1. Prepare temporary writable storage folders in /tmp
 $tmpStorage = '/tmp/storage';
 
 $storageFolders = [
@@ -17,18 +16,12 @@ foreach ($storageFolders as $folder) {
     }
 }
 
-// 2. Force Environment Variables BEFORE Laravel Boots
 $_ENV['APP_STORAGE'] = $tmpStorage;
 $_ENV['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
 $_ENV['LOG_CHANNEL'] = 'stderr';
-
-$_SERVER['APP_STORAGE'] = $tmpStorage;
-$_SERVER['VIEW_COMPILED_PATH'] = $tmpStorage . '/framework/views';
-$_SERVER['LOG_CHANNEL'] = 'stderr';
 
 putenv("APP_STORAGE={$tmpStorage}");
 putenv("VIEW_COMPILED_PATH={$tmpStorage}/framework/views");
 putenv("LOG_CHANNEL=stderr");
 
-// 3. Delegate to standard Laravel public handler
 require __DIR__ . '/../public/index.php';
