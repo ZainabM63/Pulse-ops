@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": null,
    "framework": null,
-  "outputDirectory": null,
+  "outputDirectory": ".",
   "functions": {
     "api/index.php": {
       "runtime": "vercel-php@0.9.0"
