@@ -3,14 +3,8 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Http\Request;
 
 $app = Application::configure(basePath: dirname(__DIR__))
-    ->withProviders([
-        \Illuminate\View\ViewServiceProvider::class,
-        \Illuminate\Events\EventServiceProvider::class,
-        \Illuminate\Log\LogServiceProvider::class,
-    ])
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -22,7 +16,14 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(fn (Request $request) => true);
+        $exceptions->render(function (\Throwable $e) {
+            return response()->json([
+                'actual_error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'class' => get_class($e),
+            ], 500);
+        });
     })->create();
 
 $app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
