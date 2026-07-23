@@ -17,9 +17,18 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
-        );
+        // Render raw exception directly to screen
+        $exceptions->render(function (\Throwable $e) {
+            header('Content-Type: application/json', true, 500);
+            echo json_encode([
+                'error_type' => get_class($e),
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => explode("\n", $e->getTraceAsString()),
+            ], JSON_PRETTY_PRINT);
+            exit;
+        });
     })->create();
 
 $app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
