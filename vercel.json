@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "composer install --no-dev --optimize-autoloader --no-interaction",
+  "buildCommand": null,
    "framework": null,
   "outputDirectory": null,
   "functions": {
