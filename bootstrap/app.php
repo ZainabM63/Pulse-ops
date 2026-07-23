@@ -16,13 +16,17 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Intercept any Throwable before Laravel tries to use Blade or Response factories
         $exceptions->render(function (\Throwable $e) {
-            return response()->json([
-                'actual_error' => $e->getMessage(),
+            header('Content-Type: application/json', true, 500);
+            echo json_encode([
+                'real_underlying_error' => $e->getMessage(),
+                'error_type' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'class' => get_class($e),
-            ], 500);
+                'trace' => explode("\n", $e->getTraceAsString()),
+            ], JSON_PRETTY_PRINT);
+            exit;
         });
     })->create();
 
