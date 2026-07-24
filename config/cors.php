@@ -20,7 +20,7 @@ return [
     'allowed_methods' => ['*'],
      'allowed_origins' => [
         'https://pulse-opsll.netlify.app',
-        'http://localhost:3000', // Optional: keeps local dev working
+        'http://localhost:3000',
     ],
     'allowed_origins' => ['*'],
 
