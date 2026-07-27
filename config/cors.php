@@ -14,6 +14,7 @@ return [
 
     'allowed_origins' => [
         'https://pulse-opsll.netlify.app',
+        'https://pulse-ops-fnt.vercel.app',
         'http://localhost:3000',
     ],
 
