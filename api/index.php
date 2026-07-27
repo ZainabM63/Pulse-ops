@@ -35,7 +35,7 @@ putenv("APP_PACKAGES_CACHE={$tmpStorage}/bootstrap/cache/packages.php");
 putenv("LOG_CHANNEL=stderr");
 
 // Debug: dump server vars to identify the routing issue
-if (isset($_SERVER['REQUEST_URI']) && $_SERVER['REQUEST_URI'] === '/api/debug-server') {
+if (isset($_SERVER['REQUEST_URI']) && ($_SERVER['REQUEST_URI'] === '/debug-server' || $_SERVER['REQUEST_URI'] === '/api/debug-server')) {
     header('Content-Type: application/json');
     echo json_encode([
         'REQUEST_URI' => $_SERVER['REQUEST_URI'] ?? 'NOT SET',
