@@ -34,9 +34,22 @@ putenv("APP_SERVICES_CACHE={$tmpStorage}/bootstrap/cache/services.php");
 putenv("APP_PACKAGES_CACHE={$tmpStorage}/bootstrap/cache/packages.php");
 putenv("LOG_CHANNEL=stderr");
 
-// Fix: vercel-php may not preserve original REQUEST_URI on dest rewrites
-if (empty($_SERVER['REQUEST_URI']) || $_SERVER['REQUEST_URI'] === '/api/index.php') {
-    $_SERVER['REQUEST_URI'] = $_SERVER['HTTP_X_ORIGINAL_URL'] ?? $_SERVER['HTTP_X_REWRITE_URL'] ?? '/';
+// Debug: dump server vars to identify the routing issue
+if (isset($_SERVER['REQUEST_URI']) && $_SERVER['REQUEST_URI'] === '/api/debug-server') {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'REQUEST_URI' => $_SERVER['REQUEST_URI'] ?? 'NOT SET',
+        'SCRIPT_NAME' => $_SERVER['SCRIPT_NAME'] ?? 'NOT SET',
+        'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? 'NOT SET',
+        'PATH_INFO' => $_SERVER['PATH_INFO'] ?? 'NOT SET',
+        'HTTP_X_ORIGINAL_URL' => $_SERVER['HTTP_X_ORIGINAL_URL'] ?? 'NOT SET',
+        'HTTP_X_REWRITE_URL' => $_SERVER['HTTP_X_REWRITE_URL'] ?? 'NOT SET',
+        'REDIRECT_URL' => $_SERVER['REDIRECT_URL'] ?? 'NOT SET',
+        'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? 'NOT SET',
+        'HTTP_HOST' => $_SERVER['HTTP_HOST'] ?? 'NOT SET',
+        'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'] ?? 'NOT SET',
+    ]);
+    exit;
 }
 
 require __DIR__ . '/../public/index.php';
