@@ -34,29 +34,9 @@ putenv("APP_SERVICES_CACHE={$tmpStorage}/bootstrap/cache/services.php");
 putenv("APP_PACKAGES_CACHE={$tmpStorage}/bootstrap/cache/packages.php");
 putenv("LOG_CHANNEL=stderr");
 
-// Debug: dump ALL relevant server vars
-if (isset($_SERVER['REQUEST_URI']) && str_contains($_SERVER['REQUEST_URI'], 'debug-server')) {
-    header('Content-Type: application/json');
-    echo json_encode([
-        'REQUEST_URI' => $_SERVER['REQUEST_URI'] ?? 'NOT SET',
-        'SCRIPT_NAME' => $_SERVER['SCRIPT_NAME'] ?? 'NOT SET',
-        'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? 'NOT SET',
-        'PHP_SELF' => $_SERVER['PHP_SELF'] ?? 'NOT SET',
-        'ORIG_SCRIPT_NAME' => $_SERVER['ORIG_SCRIPT_NAME'] ?? 'NOT SET',
-        'PATH_INFO' => $_SERVER['PATH_INFO'] ?? 'NOT SET',
-        'PATH_TRANSLATED' => $_SERVER['PATH_TRANSLATED'] ?? 'NOT SET',
-        'HTTP_X_ORIGINAL_URL' => $_SERVER['HTTP_X_ORIGINAL_URL'] ?? 'NOT SET',
-        'HTTP_X_REWRITE_URL' => $_SERVER['HTTP_X_REWRITE_URL'] ?? 'NOT SET',
-        'REDIRECT_URL' => $_SERVER['REDIRECT_URL'] ?? 'NOT SET',
-        'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? 'NOT SET',
-        'SERVER_PORT' => $_SERVER['SERVER_PORT'] ?? 'NOT SET',
-        'SERVER_PROTOCOL' => $_SERVER['SERVER_PROTOCOL'] ?? 'NOT SET',
-        'HTTP_HOST' => $_SERVER['HTTP_HOST'] ?? 'NOT SET',
-        'REQUEST_METHOD' => $_SERVER['REQUEST_METHOD'] ?? 'NOT SET',
-        'QUERY_STRING' => $_SERVER['QUERY_STRING'] ?? 'NOT SET',
-        'HTTPS' => $_SERVER['HTTPS'] ?? 'NOT SET',
-    ]);
-    exit;
-}
+// Fix: Reset SCRIPT_NAME so Symfony/Laravel preserve the full REQUEST_URI path.
+// vercel-php sets SCRIPT_NAME to /api/index.php which causes Symfony to strip
+// the /api/ prefix, breaking Laravel route matching.
+$_SERVER['SCRIPT_NAME'] = '/index.php';
 
 require __DIR__ . '/../public/index.php';
