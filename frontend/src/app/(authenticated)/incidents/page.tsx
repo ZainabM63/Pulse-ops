@@ -42,11 +42,20 @@ export default function IncidentsPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => {
-    fetchIncidents(page);
+  const fetchAll = () => {
     api.get<PaginatedResponse<Incident>>("/incidents?per_page=100")
       .then((res) => setAllIncidents(res.data))
       .catch(() => {});
+  };
+
+  const refreshAll = () => {
+    fetchIncidents(page);
+    fetchAll();
+  };
+
+  useEffect(() => {
+    fetchIncidents(page);
+    fetchAll();
   }, [page]);
 
   const toggleFilter = (key: FilterKey) => {
@@ -161,7 +170,7 @@ export default function IncidentsPage() {
       </div>
 
       <div className="rounded border border-border bg-surface">
-        <div className="grid grid-cols-[70px_1fr_90px_70px_150px_180px] gap-3 border-b border-border px-4 py-2">
+        <div className="grid grid-cols-[70px_1fr_90px_70px_150px_200px] gap-3 border-b border-border px-4 py-2">
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Severity</span>
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Incident</span>
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Blast</span>
@@ -178,7 +187,7 @@ export default function IncidentsPage() {
           <div className="py-12 text-center text-[11px] text-fg-muted">No incidents match your filters</div>
         ) : (
           filteredIncidents.map((incident) => (
-            <IncidentRow key={incident.id} incident={incident} onRefresh={() => fetchIncidents(page)} />
+            <IncidentRow key={incident.id} incident={incident} onRefresh={refreshAll} />
           ))
         )}
       </div>
@@ -212,7 +221,7 @@ export default function IncidentsPage() {
       <DeclareIncidentModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        onCreated={() => { setModalOpen(false); fetchIncidents(page); }}
+        onCreated={() => { setModalOpen(false); refreshAll(); }}
       />
     </div>
   );
