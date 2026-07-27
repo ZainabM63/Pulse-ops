@@ -34,4 +34,9 @@ putenv("APP_SERVICES_CACHE={$tmpStorage}/bootstrap/cache/services.php");
 putenv("APP_PACKAGES_CACHE={$tmpStorage}/bootstrap/cache/packages.php");
 putenv("LOG_CHANNEL=stderr");
 
+// Fix: vercel-php may not preserve original REQUEST_URI on dest rewrites
+if (empty($_SERVER['REQUEST_URI']) || $_SERVER['REQUEST_URI'] === '/api/index.php') {
+    $_SERVER['REQUEST_URI'] = $_SERVER['HTTP_X_ORIGINAL_URL'] ?? $_SERVER['HTTP_X_REWRITE_URL'] ?? '/';
+}
+
 require __DIR__ . '/../public/index.php';
