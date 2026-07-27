@@ -18,42 +18,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
-// hooks/useAuth.ts
 
-useEffect(() => {
-  setMounted(true);
-  const token = getToken();
-  if (token) {
-    api.get<{ data: User }>("/v1/user") // <-- Add /v1
-      .then((res) => setUser(res.data))
-      .catch(() => clearToken())
-      .finally(() => setLoading(false));
-  } else {
-    setLoading(false);
-  }
-}, []);
+  useEffect(() => {
+    setMounted(true);
+    const token = getToken();
+    if (token) {
+      api.get<{ data: User }>("/user")
+        .then((res) => setUser(res.data))
+        .catch(() => clearToken())
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
 
-const login = async (email: string, password: string) => {
-  // Add /v1 to login
-  const res = await api.post<{ user: User; token: string }>("/v1/login", { email, password });
-  setToken(res.token);
-  setUser(res.user);
-};
+  const login = async (email: string, password: string) => {
+    const res = await api.post<{ user: User; token: string }>("/login", { email, password });
+    setToken(res.token);
+    setUser(res.user);
+  };
 
-const register = async (name: string, email: string, password: string, password_confirmation: string) => {
-  // Add /v1 to register
-  const res = await api.post<{ user: User; token: string }>("/v1/register", {
-    name, email, password, password_confirmation,
-  });
-  setToken(res.token);
-  setUser(res.user);
-};
+  const register = async (name: string, email: string, password: string, password_confirmation: string) => {
+    const res = await api.post<{ user: User; token: string }>("/register", {
+      name, email, password, password_confirmation,
+    });
+    setToken(res.token);
+    setUser(res.user);
+  };
 
-const logout = async () => {
-  await api.post("/v1/logout"); // <-- Add /v1
-  clearToken();
-  setUser(null);
-};
+  const logout = async () => {
+    await api.post("/logout");
+    clearToken();
+    setUser(null);
+  };
 
   if (!mounted) return null;
 
