@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\IncidentController;
@@ -16,10 +17,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/user', [AuthController::class, 'me']);
 
         Route::get('/dashboard', DashboardController::class);
+        Route::get('/activity-log', ActivityLogController::class);
 
         Route::apiResource('incidents', IncidentController::class);
         Route::apiResource('services', ServiceController::class);
         Route::get('/teams/users', [TeamController::class, 'users']);
-        Route::apiResource('teams', TeamController::class)->only(['index', 'show', 'store']);
+        Route::apiResource('teams', TeamController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
     });
 });

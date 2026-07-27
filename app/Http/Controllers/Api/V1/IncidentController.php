@@ -111,6 +111,17 @@ class IncidentController extends Controller
             ]);
         }
 
+        if ($request->filled('assignee_id') && $request->assignee_id !== $old['assignee_id']) {
+            $assigneeName = \App\Models\User::find($request->assignee_id)?->name ?? 'Unassigned';
+            IncidentActivity::create([
+                'incident_id' => $incident->id,
+                'user_id' => $request->user()->id,
+                'type' => 'assignment',
+                'body' => "Assigned to {$assigneeName}",
+                'metadata' => ['old' => $old['assignee_id'], 'new' => $request->assignee_id],
+            ]);
+        }
+
         if ($request->filled('comment')) {
             IncidentActivity::create([
                 'incident_id' => $incident->id,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { api } from "@/lib/api";
 
 interface LogEntry {
   id: number;
@@ -8,21 +9,6 @@ interface LogEntry {
   level: "info" | "warn" | "error" | "cmd";
   message: string;
 }
-
-const mockLogs: Omit<LogEntry, "id">[] = [
-  { timestamp: "", level: "error", message: "Datadog Webhook: P0 Incident #INC-0001 triggered on #api-gateway" },
-  { timestamp: "", level: "info", message: "Auto-Escalation: SMS alert dispatched to On-Call Lead (Sarah C.)" },
-  { timestamp: "", level: "warn", message: "Circuit breaker OPEN: notification-service (error rate > 50%)" },
-  { timestamp: "", level: "info", message: "Runbook triggered: graceful degradation for auth-service" },
-  { timestamp: "", level: "error", message: "Health check failed: payment-processor-03 (latency > 5000ms)" },
-  { timestamp: "", level: "info", message: "Slack webhook delivered: #incidents channel notified" },
-  { timestamp: "", level: "warn", message: "Disk usage critical: log-volume-07 at 94% capacity" },
-  { timestamp: "", level: "info", message: "Failover initiated: auth-node-02 promoted to primary" },
-  { timestamp: "", level: "error", message: "Database connection pool exhausted: primary-replica lag > 30s" },
-  { timestamp: "", level: "info", message: "PagerDuty incident acknowledged by on-call responder" },
-  { timestamp: "", level: "warn", message: "Memory pressure: worker-queue-redis at 87% utilization" },
-  { timestamp: "", level: "info", message: "Auto-scaling: api-gateway cluster scaling to 8 replicas" },
-];
 
 const levelConfig = {
   info: { color: "text-fg-muted", prefix: "[INF]" },
@@ -34,16 +20,23 @@ const levelConfig = {
 const commandResponses: Record<string, string> = {
   "/ack": "Incident acknowledged. On-call responder notified via PagerDuty.",
   "/p1": "Severity escalated to P1 (Major). Blast radius recalculated.",
-  "/reboot-pod": "Initiating graceful pod restart... auth-node-01 terminated, new instance spinning up.",
-  "/status": "System operational. 3 active incidents, 4 services healthy.",
-  "/help": "Available commands: /ack, /p1, /reboot-pod, /status, /help",
+  "/status": "System operational. Use /help for available commands.",
+  "/help": "Available commands: /ack, /p1, /status, /help",
 };
+
+interface ApiLogEntry {
+  id: number;
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  message: string;
+}
 
 export function LiveTerminal() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const counterRef = useRef(0);
+  const seenIdsRef = useRef<Set<number>>(new Set());
 
   const now = () => {
     const d = new Date();
@@ -55,10 +48,30 @@ export function LiveTerminal() {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const mock = mockLogs[Math.floor(Math.random() * mockLogs.length)];
-      addLog(mock.level, mock.message);
-    }, 2500 + Math.random() * 3500);
+    const fetchLogs = async () => {
+      try {
+        const res = await api.get<{ data: ApiLogEntry[] }>("/activity-log?per_page=10");
+        const entries = res.data || [];
+        let hasNew = false;
+        for (const entry of entries) {
+          if (!seenIdsRef.current.has(entry.id)) {
+            seenIdsRef.current.add(entry.id);
+            addLog(entry.level, entry.message);
+            hasNew = true;
+          }
+        }
+        if (!hasNew && logs.length === 0) {
+          addLog("info", "Awaiting activity data...");
+        }
+      } catch {
+        if (logs.length === 0) {
+          addLog("info", "Awaiting activity data...");
+        }
+      }
+    };
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -111,7 +124,7 @@ export function LiveTerminal() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type command (/ack, /p1, /reboot-pod)..."
+            placeholder="Type command (/ack, /p1, /status)..."
             className="flex-1 bg-transparent font-mono text-[11px] text-fg-primary placeholder-fg-muted/40 outline-none"
           />
         </div>

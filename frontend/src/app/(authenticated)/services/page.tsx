@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Service, PaginatedResponse } from "@/types";
-import { Box, Shield, Activity, Zap, AlertTriangle } from "lucide-react";
+import { Box, Shield, Activity, Zap, AlertTriangle, Trash2 } from "lucide-react";
 
 type CircuitBreakerState = "closed" | "open" | "half_open";
 
@@ -91,10 +91,26 @@ function SloBudgetBar({ budget }: { budget: number }) {
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api.get<PaginatedResponse<Service>>("/services").then((res) => setServices(res.data)).catch(console.error);
   }, []);
+
+  const handleDelete = async (id: number) => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/services/${id}`);
+      setServices((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+      // silently fail
+    } finally {
+      setDeleting(false);
+      setConfirmDeleteId(null);
+    }
+  };
 
   const filteredServices = selectedTier !== null
     ? services.filter((s) => getMetrics(s.slug, s.status).tier === selectedTier)
@@ -162,6 +178,31 @@ export default function ServicesPage() {
                   <span className={`rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${cfg.bg} ${cfg.color} ${cfg.border}`}>
                     {cfg.label}
                   </span>
+                  {confirmDeleteId === service.id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="rounded border border-border px-1 py-0.5 text-[8px] text-fg-muted hover:bg-hover-row"
+                      >
+                        No
+                      </button>
+                      <button
+                        onClick={() => handleDelete(service.id)}
+                        disabled={deleting}
+                        className="rounded border border-critical/30 bg-critical/10 px-1 py-0.5 text-[8px] text-critical hover:bg-critical/20"
+                      >
+                        {deleting ? "..." : "Yes"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteId(service.id)}
+                      className="rounded p-1 text-fg-muted transition-colors hover:bg-hover-row hover:text-critical"
+                      title="Delete service"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               </div>
 

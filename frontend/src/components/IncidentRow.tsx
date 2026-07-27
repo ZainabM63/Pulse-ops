@@ -6,8 +6,8 @@ import { api } from "@/lib/api";
 import { SeverityBadge } from "./SeverityBadge";
 import { StatusBadge } from "./StatusBadge";
 import { getDuration } from "@/types";
-import type { Incident } from "@/types";
-import { ExternalLink, CheckCircle, UserPlus, Check } from "lucide-react";
+import type { Incident, User } from "@/types";
+import { ExternalLink, CheckCircle, UserPlus, Check, Trash2 } from "lucide-react";
 
 const blastRadiusMock: Record<string, string> = {
   critical: "~18,400",
@@ -15,12 +15,6 @@ const blastRadiusMock: Record<string, string> = {
   minor: "~1,100",
   info: "~200",
 };
-
-const mockUsers = [
-  { id: 1, name: "Sarah Chen" },
-  { id: 2, name: "Marcus Rivera" },
-  { id: 3, name: "Aisha Patel" },
-];
 
 interface Props {
   incident: Incident;
@@ -35,6 +29,10 @@ export function IncidentRow({ incident, onRefresh }: Props) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassigning, setReassigning] = useState(false);
+  const [teamUsers, setTeamUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const reassignRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,6 +44,19 @@ export function IncidentRow({ incident, onRefresh }: Props) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const fetchUsers = async () => {
+    if (teamUsers.length > 0) return;
+    setLoadingUsers(true);
+    try {
+      const res = await api.get<{ data: User[] }>("/teams/users?per_page=100");
+      setTeamUsers(res.data);
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
 
   const handleAcknowledge = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -80,10 +91,25 @@ export function IncidentRow({ incident, onRefresh }: Props) {
     }
   };
 
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/incidents/${incident.id}`);
+      onRefresh();
+    } catch {
+      // silently fail
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   return (
     <div
       onClick={() => router.push(`/incidents/${incident.id}`)}
-      className={`grid grid-cols-[70px_1fr_90px_70px_150px_180px] gap-3 border-b border-border bg-surface px-4 py-2.5 transition-colors cursor-pointer hover:bg-hover-row ${
+      className={`grid grid-cols-[70px_1fr_90px_70px_150px_200px] gap-3 border-b border-border bg-surface px-4 py-2.5 transition-colors cursor-pointer hover:bg-hover-row ${
         isCritical ? "border-l-2 border-l-critical glow-crimson" : ""
       }`}
     >
@@ -150,7 +176,7 @@ export function IncidentRow({ incident, onRefresh }: Props) {
         </button>
         <div className="relative" ref={reassignRef}>
           <button
-            onClick={(e) => { e.stopPropagation(); setReassignOpen(!reassignOpen); }}
+            onClick={(e) => { e.stopPropagation(); setReassignOpen(!reassignOpen); if (!reassignOpen) fetchUsers(); }}
             className="rounded p-0.5 text-fg-muted transition-colors hover:text-amber"
             title="Reassign"
             disabled={reassigning}
@@ -162,28 +188,63 @@ export function IncidentRow({ incident, onRefresh }: Props) {
               <div className="px-2 py-1.5">
                 <p className="text-[9px] uppercase tracking-widest text-fg-muted">Reassign to</p>
               </div>
-              {mockUsers.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={(e) => handleReassign(e, u.id)}
-                  disabled={reassigning || incident.assignee?.id === u.id}
-                  className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-[10px] transition-colors ${
-                    incident.assignee?.id === u.id
-                      ? "text-amber bg-amber/5"
-                      : "text-fg-primary hover:bg-hover-row"
-                  } disabled:opacity-50`}
-                >
-                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-amber/20 text-[8px] font-bold text-amber">
-                    {u.name.charAt(0)}
-                  </div>
-                  {u.name}
-                  {incident.assignee?.id === u.id && (
-                    <span className="ml-auto text-[8px] text-amber">current</span>
-                  )}
-                </button>
-              ))}
+              {loadingUsers ? (
+                <div className="px-2 py-2 text-[10px] text-fg-muted">Loading users...</div>
+              ) : teamUsers.length === 0 ? (
+                <div className="px-2 py-2 text-[10px] text-fg-muted">No users found</div>
+              ) : (
+                teamUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={(e) => handleReassign(e, u.id)}
+                    disabled={reassigning || incident.assignee?.id === u.id}
+                    className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-[10px] transition-colors ${
+                      incident.assignee?.id === u.id
+                        ? "text-amber bg-amber/5"
+                        : "text-fg-primary hover:bg-hover-row"
+                    } disabled:opacity-50`}
+                  >
+                    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-amber/20 text-[8px] font-bold text-amber">
+                      {u.name.charAt(0)}
+                    </div>
+                    {u.name}
+                    {incident.assignee?.id === u.id && (
+                      <span className="ml-auto text-[8px] text-amber">current</span>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           )}
+        </div>
+        <div className="relative">
+          {confirmDelete ? (
+            <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded border border-border bg-surface shadow-lg shadow-black/30">
+              <p className="px-2 py-1.5 text-[9px] text-fg-muted">Delete incident?</p>
+              <div className="flex gap-1 px-2 pb-1.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); }}
+                  className="flex-1 rounded border border-border px-1.5 py-1 text-[9px] text-fg-muted hover:bg-hover-row"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 rounded border border-critical/30 bg-critical/10 px-1.5 py-1 text-[9px] text-critical hover:bg-critical/20"
+                >
+                  {deleting ? "..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(!confirmDelete); }}
+            className="rounded p-0.5 text-fg-muted transition-colors hover:text-critical"
+            title="Delete incident"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
         </div>
       </div>
     </div>

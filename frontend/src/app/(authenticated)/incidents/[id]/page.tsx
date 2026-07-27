@@ -11,7 +11,7 @@ import { SeverityBadge } from "@/components/SeverityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getDuration, getEscalationLevel } from "@/types";
 import type { Incident } from "@/types";
-import { ArrowLeft, Swords } from "lucide-react";
+import { ArrowLeft, Swords, Trash2 } from "lucide-react";
 
 export default function IncidentDetailPage() {
   const params = useParams();
@@ -19,6 +19,8 @@ export default function IncidentDetailPage() {
   const [incident, setIncident] = useState<Incident | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const fetchIncident = () => {
     api.get<{ data: Incident }>(`/incidents/${params.id}`)
@@ -30,6 +32,18 @@ export default function IncidentDetailPage() {
   useEffect(() => {
     fetchIncident();
   }, [params.id]);
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/incidents/${params.id}`);
+      router.push("/incidents");
+    } catch {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -70,6 +84,35 @@ export default function IncidentDetailPage() {
           <Swords className="h-3 w-3" />
           Open War Room
         </button>
+        <div className="relative">
+          {confirmDelete && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded border border-border bg-surface shadow-lg shadow-black/30">
+              <p className="px-2.5 py-1.5 text-[9px] text-fg-muted">Delete this incident?</p>
+              <div className="flex gap-1 px-2.5 pb-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 rounded border border-border px-1.5 py-1 text-[9px] text-fg-muted hover:bg-hover-row"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 rounded border border-critical/30 bg-critical/10 px-1.5 py-1 text-[9px] text-critical hover:bg-critical/20"
+                >
+                  {deleting ? "..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setConfirmDelete(!confirmDelete)}
+            className="inline-flex items-center gap-1.5 rounded border border-critical/20 bg-critical/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-critical transition-colors hover:bg-critical/10"
+          >
+            <Trash2 className="h-3 w-3" />
+            Delete
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 flex items-start justify-between">
@@ -106,6 +149,7 @@ export default function IncidentDetailPage() {
 
       <StatusStepper
         currentStatus={incident.status}
+        currentSeverity={incident.severity}
         incidentId={incident.id}
         onStatusChange={fetchIncident}
       />

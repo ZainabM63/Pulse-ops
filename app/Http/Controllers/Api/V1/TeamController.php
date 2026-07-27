@@ -46,6 +46,39 @@ class TeamController extends Controller
             ->setStatusCode(201);
     }
 
+    public function update(Request $request, Team $team): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'slug' => ['sometimes', 'string', 'max:255', 'unique:teams,slug,' . $team->id],
+            'description' => ['nullable', 'string'],
+        ]);
+
+        $team->update($validated);
+
+        if ($request->has('user_ids')) {
+            User::where('company_id', $request->user()->company_id)
+                ->where('team_id', $team->id)
+                ->update(['team_id' => null]);
+
+            User::whereIn('id', $request->user_ids)
+                ->where('company_id', $request->user()->company_id)
+                ->update(['team_id' => $team->id]);
+        }
+
+        return response()->json([
+            'message' => 'Team updated',
+            'team' => new TeamResource($team->fresh()->load('users')),
+        ]);
+    }
+
+    public function destroy(Team $team): JsonResponse
+    {
+        $team->delete();
+
+        return response()->json(['message' => 'Team deleted']);
+    }
+
     public function users(Request $request): AnonymousResourceCollection
     {
         $users = User::where('company_id', $request->user()->company_id)
