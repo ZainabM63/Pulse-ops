@@ -13,7 +13,7 @@ import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useVoiceOutput } from "@/hooks/useVoiceOutput";
 import {
   ArrowLeft, AlertTriangle, Users, Clock, Terminal, Zap,
-  Volume2, VolumeX, Send, Mic, MicOff, Lightbulb,
+  Volume2, VolumeX, Send, Mic, MicOff, AudioLines, Lightbulb,
   CheckCircle, Paperclip, Plus, Trash2, Check, X, ShieldAlert, Cpu
 } from "lucide-react";
 
@@ -96,7 +96,6 @@ export default function WarRoomPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [dispatchEnabled, setDispatchEnabled] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
   const [escalated, setEscalated] = useState(false);
@@ -107,6 +106,16 @@ export default function WarRoomPage() {
     onResult: (text) => setChatInput((prev) => prev ? `${prev} ${text}` : text),
   });
   const voiceOutput = useVoiceOutput();
+  const speakRef = useRef<(text: string) => void>(() => {});
+  const announcedRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    speakRef.current = voiceOutput.speak;
+  }, [voiceOutput.speak]);
+
+  const announce = useCallback((text: string) => {
+    speakRef.current(text);
+  }, []);
 
   const fetchIncident = useCallback(async (id: string) => {
     try {
@@ -153,12 +162,17 @@ export default function WarRoomPage() {
         }
       }
       if (parsed.length > 0) {
+        if (append) {
+          for (const m of parsed) {
+            if (m.type === "system") announce(m.message);
+          }
+        }
         setMessages((prev) => (append ? [...prev, ...parsed] : parsed));
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [announce]);
 
   useEffect(() => {
     if (params.id) {
@@ -190,11 +204,85 @@ export default function WarRoomPage() {
     if (logScrollRef.current) logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
   }, [logs]);
 
+  useEffect(() => {
+    if (incident && !announcedRef.current.has(incident.id)) {
+      announcedRef.current.add(incident.id);
+      announce(`Auto dispatch: incident INC-${String(incident.id).padStart(4, "0")}, severity ${incident.severity}, status ${incident.status}. ${incident.title}`);
+    }
+  }, [incident, announce]);
+
   const addMessage = (user: string, message: string, type: ChatMessage["type"] = "chat") => {
     const now = new Date();
     const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
     setMessages((prev) => [...prev, { id: Date.now() + Math.random(), timestamp, user, message, type }]);
   };
+
+  const startRecording = useCallback(async () => {
+    if (isRecording || !incident) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const dataUrl = String(reader.result);
+          try {
+            await api.post(`/incidents/${incident.id}/chat`, {
+              body: "Voice note",
+              metadata: { audio_base64: dataUrl },
+            });
+            await fetchChat(incident.id, true);
+          } catch {
+            addMessage("System", "Failed to send voice note.", "system");
+          }
+        };
+        reader.readAsDataURL(blob);
+        setIsRecording(false);
+        setRecordingTime(0);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setIsRecording(false);
+        setRecordingTime(0);
+        addMessage("System", "Voice recording failed.", "system");
+      };
+      recorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime((t) => t + 1);
+      }, 1000);
+    } catch {
+      addMessage("System", "Microphone access denied.", "system");
+    }
+  }, [isRecording, incident, fetchChat, addMessage]);
+
+  const stopRecording = useCallback(() => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
 
   const handleCreateHypothesis = async () => {
     if (!newHypothesisTitle.trim() || !incident || submittingHypothesis) return;
@@ -217,6 +305,7 @@ export default function WarRoomPage() {
       setNewHypothesisEvidence("");
       setShowAddHypothesis(false);
       addMessage("System", `New Root Cause Hypothesis added: "${res.data.title}"`, "system");
+      announce(`New root cause hypothesis added: ${res.data.title}`);
     } catch {
       // ignore
     } finally {
@@ -232,6 +321,7 @@ export default function WarRoomPage() {
       });
       setHypotheses((prev) => prev.map((h) => (h.id === hypothesisId ? res.data : h)));
       addMessage("System", `Hypothesis "${res.data.title}" status updated to ${status.toUpperCase()}`, "system");
+      announce(`Hypothesis ${res.data.title} status updated to ${status.toUpperCase()}`);
     } catch {
       // ignore
     }
@@ -294,6 +384,7 @@ export default function WarRoomPage() {
       await api.put(`/incidents/${incident.id}`, { status: "investigating" });
       setAcknowledged(true);
       addMessage("System", "Incident acknowledged. Responders notified.", "system");
+      announce("Incident acknowledged. Responders notified.");
       fetchIncident(String(incident.id));
     } catch {
       addMessage("System", "Failed to acknowledge incident.", "system");
@@ -312,6 +403,7 @@ export default function WarRoomPage() {
       await api.put(`/incidents/${incident.id}`, { severity: nextSeverity });
       setEscalated(true);
       addMessage("System", `Incident escalated to ${nextSeverity.toUpperCase()}.`, "system");
+      announce(`Incident escalated to ${nextSeverity.toUpperCase()}.`);
       fetchIncident(String(incident.id));
     } catch {
       addMessage("System", "Failed to escalate incident.", "system");
@@ -360,6 +452,7 @@ export default function WarRoomPage() {
   }
 
   const escalation = getEscalationLevel(incident.created_at);
+  const mediaSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
   return (
     <div className="flex h-full flex-col bg-canvas text-fg-primary font-sans">
@@ -390,15 +483,15 @@ export default function WarRoomPage() {
 
         <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <button
-            onClick={() => setDispatchEnabled(!dispatchEnabled)}
+            onClick={voiceOutput.toggle}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all ${
-              dispatchEnabled
+              voiceOutput.enabled
                 ? "border-amber/50 bg-amber/10 text-amber shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                 : "border-border bg-surface text-fg-muted hover:border-border"
             }`}
           >
-            {dispatchEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-            Audio Dispatch {dispatchEnabled ? "ON" : "OFF"}
+            {voiceOutput.enabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            Audio Dispatch {voiceOutput.enabled ? "ON" : "OFF"}
           </button>
 
           <div className="flex items-center gap-2 font-mono text-xs text-fg-muted border-l border-border pl-4">
@@ -474,6 +567,42 @@ export default function WarRoomPage() {
                       placeholder="Type message or command (/ack, /escalate, /status, /help)..."
                       className="flex-1 bg-transparent font-mono text-xs text-fg-primary placeholder-fg-muted outline-none"
                     />
+                    {voiceInput.isSupported && (
+                      <button
+                        type="button"
+                        onClick={voiceInput.isListening ? voiceInput.stopListening : voiceInput.startListening}
+                        className={`rounded p-1.5 transition-all ${
+                          voiceInput.isListening
+                            ? "text-critical animate-pulse"
+                            : "text-fg-muted hover:text-amber"
+                        }`}
+                        title={voiceInput.isListening ? "Stop dictation" : "Dictate message"}
+                      >
+                        {voiceInput.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      </button>
+                    )}
+                    {isRecording ? (
+                      <button
+                        type="button"
+                        onClick={stopRecording}
+                        className="flex items-center gap-1.5 rounded px-2 py-1 border border-critical/40 bg-critical/10 text-[10px] font-bold font-mono text-critical animate-pulse"
+                        title="Stop and send recording"
+                      >
+                        <span className="h-2 w-2 rounded-full bg-critical" />
+                        {String(Math.floor(recordingTime / 60)).padStart(2, "0")}:{String(recordingTime % 60).padStart(2, "0")}
+                      </button>
+                    ) : (
+                      mediaSupported && (
+                        <button
+                          type="button"
+                          onClick={startRecording}
+                          className="rounded p-1.5 text-fg-muted hover:text-critical transition-all"
+                          title="Record voice note"
+                        >
+                          <AudioLines className="h-4 w-4" />
+                        </button>
+                      )
+                    )}
                     <button type="submit" className="rounded p-1.5 text-healthy hover:bg-emerald-500/20 transition-all">
                       <Send className="h-4 w-4" />
                     </button>
