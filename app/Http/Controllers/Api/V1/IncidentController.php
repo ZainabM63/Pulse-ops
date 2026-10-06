@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\ChatMessageBroadcast;
 use App\Events\IncidentUpdated;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreIncidentRequest;
@@ -144,5 +145,72 @@ class IncidentController extends Controller
         $incident->delete();
 
         return response()->json(['message' => 'Incident deleted']);
+    }
+
+    public function chat(Request $request, Incident $incident): JsonResponse
+    {
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'max:5000'],
+            'metadata' => ['nullable', 'array'],
+        ]);
+
+        $activity = IncidentActivity::create([
+            'incident_id' => $incident->id,
+            'user_id' => $request->user()->id,
+            'type' => 'chat',
+            'body' => $validated['body'],
+            'metadata' => $validated['metadata'] ?? null,
+        ]);
+
+        ChatMessageBroadcast::dispatch($activity);
+
+        return response()->json([
+            'message' => new \App\Http\Resources\IncidentActivityResource($activity->load('user')),
+        ], 201);
+    }
+
+    public function getChat(Incident $incident, Request $request): JsonResponse
+    {
+        $afterId = $request->integer('after_id', 0);
+
+        $query = IncidentActivity::with('user')
+            ->where('incident_id', $incident->id)
+            ->whereIn('type', [
+                'chat', 'comment', 'status_change', 'severity_change', 'assignment',
+                'zoom_bridge', 'slack_alert', 'postmortem_export', 'agent_action', 'command',
+            ]);
+
+        if ($afterId > 0) {
+            $query->where('id', '>', $afterId);
+        }
+
+        $activities = $query->orderBy('id', 'asc')
+            ->limit(100)
+            ->get();
+
+        return response()->json(['data' => $activities]);
+    }
+
+    public function logActivity(Request $request, Incident $incident): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'max:50'],
+            'body' => ['required', 'string', 'max:5000'],
+            'metadata' => ['nullable', 'array'],
+        ]);
+
+        $activity = IncidentActivity::create([
+            'incident_id' => $incident->id,
+            'user_id' => $request->user()->id,
+            'type' => $validated['type'],
+            'body' => $validated['body'],
+            'metadata' => $validated['metadata'] ?? null,
+        ]);
+
+        ChatMessageBroadcast::dispatch($activity);
+
+        return response()->json([
+            'message' => new \App\Http\Resources\IncidentActivityResource($activity->load('user')),
+        ], 201);
     }
 }

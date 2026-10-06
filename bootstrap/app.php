@@ -17,6 +17,13 @@ $app = Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/*',
         ]);
+
+        $middleware->redirectGuestsTo(function (Request $request) {
+            if ($request->is('api/*')) {
+                abort(401, 'Unauthenticated');
+            }
+            return route('login');
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
@@ -24,6 +31,8 @@ $app = Application::configure(basePath: dirname(__DIR__))
         );
     })->create();
 
-$app->useStoragePath(env('APP_STORAGE', '/tmp/storage'));
+if (env('APP_STORAGE')) {
+    $app->useStoragePath(env('APP_STORAGE'));
+}
 
 return $app;

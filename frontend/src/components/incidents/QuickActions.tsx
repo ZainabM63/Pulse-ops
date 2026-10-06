@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/api";
 import type { Incident } from "@/types";
 import { Video, FileText, MessageSquare, Check, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -26,6 +27,12 @@ export function QuickActions({ incident }: Props) {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const logActivity = async (type: string, body: string, metadata?: Record<string, unknown>) => {
+    try {
+      await api.post(`/incidents/${incident.id}/activity`, { type, body, metadata });
+    } catch { /* best effort */ }
+  };
+
   const handleZoomBridge = async () => {
     const meetingId = Math.floor(1000000000 + Math.random() * 9000000000);
     const url = `https://zoom.us/j/${meetingId}`;
@@ -34,6 +41,7 @@ export function QuickActions({ incident }: Props) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       showToast("Zoom bridge link copied to clipboard");
+      logActivity("zoom_bridge", `Zoom bridge link generated: ${url}`, { url });
     } catch {
       showToast("Failed to copy — check clipboard permissions", "error");
     }
@@ -87,6 +95,7 @@ export function QuickActions({ incident }: Props) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast(`Post-mortem report downloaded as ${id}-postmortem.txt`);
+    logActivity("postmortem_export", "Post-mortem report exported");
   };
 
   const handleSlackAlert = async () => {
@@ -139,6 +148,7 @@ export function QuickActions({ incident }: Props) {
 
       if (res.ok || res.status === 200) {
         showToast(`Slack alert sent for ${id}`);
+        logActivity("slack_alert", "Slack alert sent to configured channel", { slack_url: slackUrl });
       } else {
         showToast(`Slack webhook returned status ${res.status}`, "error");
       }

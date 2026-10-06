@@ -31,13 +31,18 @@ class ServiceController extends Controller
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['required', 'string', 'max:255', 'unique:services,slug'],
+            'slug' => ['nullable', 'string', 'max:255', 'unique:services,slug'],
             'description' => ['nullable', 'string'],
             'team_id' => ['nullable', 'exists:teams,id'],
             'status' => ['sometimes', 'string', 'in:operational,degraded,partial_outage,major_outage'],
+            'severity_level' => ['sometimes', 'string', 'in:info,warning,critical'],
         ]);
 
         $validated['company_id'] = $request->user()->company_id;
+
+        if (empty($validated['slug'])) {
+            $validated['slug'] = \Illuminate\Support\Str::slug($validated['name']);
+        }
 
         $service = Service::create($validated);
 
@@ -69,5 +74,19 @@ class ServiceController extends Controller
         $service->delete();
 
         return response()->json(['message' => 'Service deleted']);
+    }
+
+    public function updateCircuitBreaker(Request $request, Service $service): JsonResponse
+    {
+        $validated = $request->validate([
+            'circuit_breaker_state' => ['required', 'string', 'in:closed,open,half_open'],
+        ]);
+
+        $service->update(['circuit_breaker_state' => $validated['circuit_breaker_state']]);
+
+        return response()->json([
+            'message' => 'Circuit breaker updated',
+            'service' => new ServiceResource($service->fresh()->load('team')),
+        ]);
     }
 }

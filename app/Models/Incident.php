@@ -12,7 +12,7 @@ class Incident extends Model
 {
     use BelongsToCompany;
 
-    protected $fillable = ['company_id', 'title', 'description', 'severity', 'status', 'reporter_id', 'assignee_id', 'team_id', 'acknowledged_at', 'resolved_at'];
+    protected $fillable = ['company_id', 'title', 'description', 'severity', 'status', 'reporter_id', 'assignee_id', 'team_id', 'acknowledged_at', 'resolved_at', 'blast_radius'];
 
     protected function casts(): array
     {
@@ -45,5 +45,15 @@ class Incident extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(IncidentActivity::class);
+    }
+
+    public function hypotheses(): HasMany
+    {
+        return $this->hasMany(IncidentHypothesis::class);
+    }
+
+    public function telemetryLogs(): HasMany
+    {
+        return $this->hasMany(TelemetryLog::class);
     }
 }

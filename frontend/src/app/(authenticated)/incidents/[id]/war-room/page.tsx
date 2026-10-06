@@ -3,15 +3,18 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import type { Incident, IncidentHypothesis, TelemetryLog } from "@/types";
+import { getEscalationLevel, getDuration } from "@/types";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { VoiceNotePlayer } from "@/components/warroom/VoiceNotePlayer";
-import { getDuration, getEscalationLevel } from "@/types";
-import type { Incident } from "@/types";
+import { AgentPanel } from "@/components/agent/AgentPanel";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useVoiceOutput } from "@/hooks/useVoiceOutput";
 import {
-  ArrowLeft, Send, AlertTriangle, Paperclip,
-  Zap, Clock, Users, Terminal, Lightbulb,
-  CheckCircle, XCircle, Mic, MicOff, Volume2, VolumeX
+  ArrowLeft, AlertTriangle, Users, Clock, Terminal, Zap,
+  Volume2, VolumeX, Send, Mic, MicOff, Lightbulb,
+  CheckCircle, Paperclip, Plus, Trash2, Check, X, ShieldAlert, Cpu
 } from "lucide-react";
 
 interface ChatMessage {
@@ -19,63 +22,49 @@ interface ChatMessage {
   timestamp: string;
   user: string;
   message: string;
-  type: "chat" | "system" | "command" | "voice";
+  type: "chat" | "system" | "voice" | "command";
   audioUrl?: string;
 }
 
-interface LogEntry {
+interface ApiActivity {
   id: number;
-  timestamp: string;
-  level: "info" | "warn" | "error";
-  message: string;
+  type: string;
+  body: string | null;
+  metadata: Record<string, unknown> | null;
+  user: { id: number; name: string } | null;
+  created_at: string;
 }
 
-const mockWarLogs: Omit<LogEntry, "id">[] = [
-  { timestamp: "", level: "error", message: "P0 Alert: 5xx error rate > 15% on api-gateway" },
-  { timestamp: "", level: "info", message: "Auto-escalation triggered: VP Eng notified" },
-  { timestamp: "", level: "warn", message: "Circuit breaker state change: notification-service OPEN" },
-  { timestamp: "", level: "info", message: "Failover complete: auth-node-02 promoted to primary" },
-  { timestamp: "", level: "error", message: "Payment processing latency > 2000ms threshold" },
-  { timestamp: "", level: "info", message: "Runbook deployed: graceful degradation for non-critical paths" },
-  { timestamp: "", level: "warn", message: "Memory utilization critical: redis-cluster-01 at 92%" },
-  { timestamp: "", level: "info", message: "Canary deployment rolled back: auth-service v2.3.1" },
-];
+function activityToMessage(activity: ApiActivity): ChatMessage | null {
+  const userName = activity.user?.name ?? "System";
+  const ts = new Date(activity.created_at);
+  const timestamp = `${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}:${String(ts.getSeconds()).padStart(2, "0")}`;
 
-const rootCauseHypotheses = [
-  {
-    id: 1,
-    title: "Connection Pool Exhaustion",
-    confidence: 78,
-    status: "investigating",
-    evidence: ["DB replica lag > 30s", "Connection pool at 100%", "Primary DB CPU at 98%"],
-    owner: "Sarah Chen",
-  },
-  {
-    id: 2,
-    title: "Memory Leak in Auth Service",
-    confidence: 45,
-    status: "hypothesis",
-    evidence: ["RSS growing 2MB/min", "GC pause time increasing"],
-    owner: "Alex R.",
-  },
-  {
-    id: 3,
-    title: "Network Partition Between AZs",
-    confidence: 12,
-    status: "ruled_out",
-    evidence: ["Cross-AZ latency nominal", "No packet loss detected"],
-    owner: "—",
-  },
-];
+  if (activity.type === "chat") {
+    const hasAudio = activity.metadata && typeof activity.metadata === "object" && "audio_base64" in activity.metadata;
+    if (hasAudio) {
+      return { id: activity.id, timestamp, user: userName, message: "Voice note", type: "voice", audioUrl: (activity.metadata as Record<string, string>).audio_base64 };
+    }
+    return { id: activity.id, timestamp, user: userName, message: activity.body ?? "", type: "chat" };
+  }
 
-const warCommands: Record<string, string> = {
-  "/ack": "Incident acknowledged. On-call responder notified.",
-  "/escalate": "Escalating to next on-call tier.",
-  "/attach-log": "Live log stream attached to incident timeline.",
-  "/status": "Current status: Investigating. 3 services affected.",
-  "/mute": "Notification silencing enabled for 15 minutes.",
-  "/help": "Commands: /ack, /escalate, /attach-log, /status, /mute, /help",
-};
+  if (activity.type === "comment") {
+    return { id: activity.id, timestamp, user: userName, message: activity.body ?? "", type: "chat" };
+  }
+
+  if (["status_change", "severity_change", "assignment"].includes(activity.type)) {
+    const label = activity.type === "status_change" ? "Status changed"
+      : activity.type === "severity_change" ? "Severity changed"
+      : "Assignment updated";
+    return { id: activity.id, timestamp, user: "System", message: `${label}: ${activity.body}`, type: "system" };
+  }
+
+  if (activity.type === "command") {
+    return { id: activity.id, timestamp, user: userName, message: activity.body ?? "", type: "command" };
+  }
+
+  return null;
+}
 
 export default function WarRoomPage() {
   const params = useParams();
@@ -84,12 +73,21 @@ export default function WarRoomPage() {
   const [loading, setLoading] = useState(true);
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<TelemetryLog[]>([]);
+  const [hypotheses, setHypotheses] = useState<IncidentHypothesis[]>([]);
   const [activeTab, setActiveTab] = useState<"chat" | "logs">("chat");
+
+  // Add hypothesis state
+  const [showAddHypothesis, setShowAddHypothesis] = useState(false);
+  const [newHypothesisTitle, setNewHypothesisTitle] = useState("");
+  const [newHypothesisConfidence, setNewHypothesisConfidence] = useState(50);
+  const [newHypothesisEvidence, setNewHypothesisEvidence] = useState("");
+  const [submittingHypothesis, setSubmittingHypothesis] = useState(false);
+
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const logScrollRef = useRef<HTMLDivElement>(null);
-  const msgCounter = useRef(0);
-  const logCounter = useRef(0);
+  const lastActivityIdRef = useRef(0);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -98,57 +96,91 @@ export default function WarRoomPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Dispatch announcer state
   const [dispatchEnabled, setDispatchEnabled] = useState(false);
-
-  // Quick action states
   const [acknowledged, setAcknowledged] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
   const [escalated, setEscalated] = useState(false);
   const [escalating, setEscalating] = useState(false);
   const [logsAttached, setLogsAttached] = useState(false);
 
-  const now = () => {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-  };
+  const voiceInput = useVoiceInput({
+    onResult: (text) => setChatInput((prev) => prev ? `${prev} ${text}` : text),
+  });
+  const voiceOutput = useVoiceOutput();
 
-  const addMessage = useCallback((user: string, message: string, type: ChatMessage["type"] = "chat", audioUrl?: string) => {
-    setMessages((prev) => [...prev, { id: msgCounter.current++, timestamp: now(), user, message, type, audioUrl }]);
-  }, []);
-
-  const addLog = useCallback((level: LogEntry["level"], message: string) => {
-    setLogs((prev) => [...prev.slice(-100), { id: logCounter.current++, timestamp: now(), level, message }]);
-  }, []);
-
-  useEffect(() => {
-    api.get<{ data: Incident }>(`/incidents/${params.id}`)
-      .then((res) => {
-        setIncident(res.data);
-        addMessage("System", `War room activated for INC-${String(res.data.id).padStart(4, "0")}`, "system");
-        addMessage("System", `Severity: ${res.data.severity.toUpperCase()} | Status: ${res.data.status.toUpperCase()}`, "system");
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [params.id, addMessage]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const mock = mockWarLogs[Math.floor(Math.random() * mockWarLogs.length)];
-      addLog(mock.level, mock.message);
-
-      // Dispatch announcer: speak P0 critical alerts
-      if (dispatchEnabled && mock.level === "error" && typeof window !== "undefined" && "speechSynthesis" in window) {
-        try {
-          const utterance = new SpeechSynthesisUtterance(`Critical alert. ${mock.message}`);
-          utterance.rate = 1.1;
-          utterance.pitch = 0.9;
-          window.speechSynthesis.speak(utterance);
-        } catch { /* speech synthesis not available */ }
+  const fetchIncident = useCallback(async (id: string) => {
+    try {
+      const res = await api.get<{ data: Incident }>(`/incidents/${id}`);
+      setIncident(res.data);
+      if (res.data.status === "investigating" || res.data.acknowledged_at) {
+        setAcknowledged(true);
       }
-    }, 3000 + Math.random() * 4000);
-    return () => clearInterval(interval);
-  }, [dispatchEnabled, addLog]);
+    } catch {
+      setIncident(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchHypotheses = useCallback(async (id: string) => {
+    try {
+      const res = await api.get<{ data: IncidentHypothesis[] }>(`/incidents/${id}/hypotheses`);
+      setHypotheses(res.data || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const fetchLogs = useCallback(async (id: string) => {
+    try {
+      const res = await api.get<{ data: TelemetryLog[] }>(`/telemetry?incident_id=${id}&limit=50`);
+      setLogs(res.data || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const fetchChat = useCallback(async (id: number, append = true) => {
+    try {
+      const res = await api.get<{ data: ApiActivity[] }>(`/incidents/${id}/chat`);
+      const activities = res.data || [];
+      const parsed: ChatMessage[] = [];
+      for (const act of activities) {
+        if (act.id > lastActivityIdRef.current) {
+          lastActivityIdRef.current = act.id;
+          const msg = activityToMessage(act);
+          if (msg) parsed.push(msg);
+        }
+      }
+      if (parsed.length > 0) {
+        setMessages((prev) => (append ? [...prev, ...parsed] : parsed));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (params.id) {
+      const idStr = String(params.id);
+      fetchIncident(idStr);
+      fetchHypotheses(idStr);
+      fetchLogs(idStr);
+    }
+  }, [params.id, fetchIncident, fetchHypotheses, fetchLogs]);
+
+  useEffect(() => {
+    if (incident) {
+      fetchChat(incident.id, false);
+      pollRef.current = setInterval(() => {
+        fetchChat(incident.id, true);
+        fetchLogs(String(incident.id));
+      }, 4000);
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+      };
+    }
+  }, [incident, fetchChat, fetchLogs]);
 
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
@@ -158,81 +190,111 @@ export default function WarRoomPage() {
     if (logScrollRef.current) logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
   }, [logs]);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    const input = chatInput.trim();
-    if (!input) return;
-
-    if (input.startsWith("/")) {
-      addMessage("You", input, "command");
-      const response = warCommands[input.toLowerCase()];
-      if (response) {
-        setTimeout(() => addMessage("System", response, "system"), 300);
-      } else {
-        setTimeout(() => addMessage("System", `Unknown command: ${input}. Type /help for available commands.`, "system"), 300);
-      }
-    } else {
-      addMessage("You", input, "chat");
-    }
-    setChatInput("");
+  const addMessage = (user: string, message: string, type: ChatMessage["type"] = "chat") => {
+    const now = new Date();
+    const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+    setMessages((prev) => [...prev, { id: Date.now() + Math.random(), timestamp, user, message, type }]);
   };
 
-  // Voice recording handlers
-  const startRecording = async () => {
+  const handleCreateHypothesis = async () => {
+    if (!newHypothesisTitle.trim() || !incident || submittingHypothesis) return;
+    setSubmittingHypothesis(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      audioChunksRef.current = [];
+      const evidenceArr = newHypothesisEvidence.trim()
+        ? newHypothesisEvidence.split("\n").map((s) => s.trim()).filter(Boolean)
+        : [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
+      const res = await api.post<{ data: IncidentHypothesis }>(`/incidents/${incident.id}/hypotheses`, {
+        title: newHypothesisTitle.trim(),
+        confidence: newHypothesisConfidence,
+        status: "hypothesis",
+        evidence: evidenceArr,
+      });
 
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const url = URL.createObjectURL(blob);
-        addMessage("You", "Voice note", "voice", url);
-        stream.getTracks().forEach((t) => t.stop());
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
+      setHypotheses((prev) => [res.data, ...prev]);
+      setNewHypothesisTitle("");
+      setNewHypothesisConfidence(50);
+      setNewHypothesisEvidence("");
+      setShowAddHypothesis(false);
+      addMessage("System", `New Root Cause Hypothesis added: "${res.data.title}"`, "system");
     } catch {
-      addMessage("System", "Microphone access denied. Please enable microphone permissions.", "system");
+      // ignore
+    } finally {
+      setSubmittingHypothesis(false);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-    setRecordingTime(0);
-    if (recordingIntervalRef.current) {
-      clearInterval(recordingIntervalRef.current);
-      recordingIntervalRef.current = null;
+  const handleUpdateHypothesisStatus = async (hypothesisId: number, status: IncidentHypothesis["status"]) => {
+    if (!incident) return;
+    try {
+      const res = await api.put<{ data: IncidentHypothesis }>(`/incidents/${incident.id}/hypotheses/${hypothesisId}`, {
+        status,
+      });
+      setHypotheses((prev) => prev.map((h) => (h.id === hypothesisId ? res.data : h)));
+      addMessage("System", `Hypothesis "${res.data.title}" status updated to ${status.toUpperCase()}`, "system");
+    } catch {
+      // ignore
     }
   };
 
-  const formatRecordingTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${String(sec).padStart(2, "0")}`;
+  const handleDeleteHypothesis = async (hypothesisId: number) => {
+    if (!incident) return;
+    try {
+      await api.delete(`/incidents/${incident.id}/hypotheses/${hypothesisId}`);
+      setHypotheses((prev) => prev.filter((h) => h.id !== hypothesisId));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = chatInput.trim();
+    if (!text || !incident) return;
+
+    if (text.startsWith("/")) {
+      setChatInput("");
+      addMessage("You", text, "command");
+
+      if (text.startsWith("/ack")) {
+        await handleAcknowledge();
+        return;
+      }
+      if (text.startsWith("/escalate")) {
+        await handleEscalate();
+        return;
+      }
+      if (text.startsWith("/status")) {
+        addMessage("System", `INC-${String(incident.id).padStart(4, "0")} | Title: "${incident.title}" | Status: ${incident.status.toUpperCase()} | Severity: ${incident.severity.toUpperCase()}`, "system");
+        return;
+      }
+      if (text.startsWith("/help")) {
+        addMessage("System", "War Room Slash Commands: /ack, /escalate, /status, /help", "system");
+        return;
+      }
+    }
+
+    setChatInput("");
+    try {
+      await api.post(`/incidents/${incident.id}/chat`, { body: text });
+      fetchChat(incident.id, true);
+    } catch {
+      addMessage("You", text, "chat");
+    }
   };
 
   const handleAcknowledge = async () => {
-    if (acknowledging || acknowledged || !incident) return;
+    if (acknowledged || acknowledging || !incident) return;
     setAcknowledging(true);
     try {
-      await api.put(`/incidents/${incident.id}`, { comment: "Incident acknowledged in War Room" });
+      await api.post(`/incidents/${incident.id}/activity`, {
+        type: "command",
+        body: "Incident acknowledged by on-call responder.",
+      });
+      await api.put(`/incidents/${incident.id}`, { status: "investigating" });
       setAcknowledged(true);
-      addMessage("System", "Incident acknowledged. All responders notified.", "system");
+      addMessage("System", "Incident acknowledged. Responders notified.", "system");
+      fetchIncident(String(incident.id));
     } catch {
       addMessage("System", "Failed to acknowledge incident.", "system");
     } finally {
@@ -241,21 +303,16 @@ export default function WarRoomPage() {
   };
 
   const handleEscalate = async () => {
-    if (escalating || escalated || !incident) return;
+    if (escalated || escalating || !incident) return;
     setEscalating(true);
     try {
-      await api.put(`/incidents/${incident.id}`, { comment: "Escalating to CTO" });
+      const severityOrder = ["info", "minor", "major", "critical"];
+      const currentIdx = severityOrder.indexOf(incident.severity);
+      const nextSeverity = severityOrder[Math.min(currentIdx + 1, severityOrder.length - 1)];
+      await api.put(`/incidents/${incident.id}`, { severity: nextSeverity });
       setEscalated(true);
-      addMessage("System", "Incident escalated to CTO. Emergency notification dispatched.", "system");
-      addLog("error", "ESCALATION: Incident escalated to CTO level");
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        try {
-          const utterance = new SpeechSynthesisUtterance("Warning. Incident escalated to CTO. Emergency notification dispatched.");
-          utterance.rate = 1.1;
-          utterance.pitch = 0.9;
-          window.speechSynthesis.speak(utterance);
-        } catch { /* speech synthesis not available */ }
-      }
+      addMessage("System", `Incident escalated to ${nextSeverity.toUpperCase()}.`, "system");
+      fetchIncident(String(incident.id));
     } catch {
       addMessage("System", "Failed to escalate incident.", "system");
     } finally {
@@ -263,37 +320,40 @@ export default function WarRoomPage() {
     }
   };
 
-  const handleAttachLogs = () => {
-    if (logsAttached) return;
+  const handleAttachLogs = async () => {
+    if (logsAttached || !incident) return;
     setLogsAttached(true);
-    addMessage("System", "Live log stream attached to incident timeline.", "system");
-    addLog("info", "Log stream attached: api-gateway-access.log");
-    addLog("info", "Log stream attached: auth-service-trace.log");
-    addLog("info", "Log stream attached: payment-processor-audit.log");
-    const extraLogs = [
-      { level: "warn" as const, message: "Elevated latency detected on payment-processor: p99=450ms" },
-      { level: "info" as const, message: "Auto-scaling triggered: auth-service replicas 3→5" },
-      { level: "error" as const, message: "Connection pool warning: api-gateway at 85% capacity" },
-    ];
-    extraLogs.forEach((log, i) => {
-      setTimeout(() => addLog(log.level, log.message), 1500 * (i + 1));
-    });
+    try {
+      await api.post(`/telemetry`, {
+        incident_id: incident.id,
+        level: "info",
+        message: "Live server log stream attached to incident timeline",
+        source: "warroom",
+      });
+      addMessage("System", "Live log stream attached to incident timeline.", "system");
+      fetchLogs(String(incident.id));
+    } catch {
+      setLogsAttached(false);
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-amber" />
+      <div className="flex h-full items-center justify-center p-8 bg-canvas">
+        <div className="flex items-center gap-3 text-healthy font-mono text-xs">
+          <Cpu className="h-5 w-5 animate-spin" />
+          <span>LOADING WAR ROOM MISSION MATRIX...</span>
+        </div>
       </div>
     );
   }
 
   if (!incident) {
     return (
-      <div className="p-6">
-        <p className="text-sm text-critical">Incident not found</p>
-        <button onClick={() => router.push("/incidents")} className="mt-2 text-xs text-amber hover:underline">
-          ← Back to incidents
+      <div className="p-8 bg-canvas h-full text-fg-primary">
+        <p className="text-sm font-mono text-rose-500">ERROR 404: INCIDENT NOT FOUND</p>
+        <button onClick={() => router.push("/incidents")} className="mt-4 text-xs font-mono text-amber hover:underline">
+          &larr; Return to Incident Matrix
         </button>
       </div>
     );
@@ -302,303 +362,350 @@ export default function WarRoomPage() {
   const escalation = getEscalationLevel(incident.created_at);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* War Room Header */}
-      <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-2">
-        <div className="flex items-center gap-3">
+    <div className="flex h-full flex-col bg-canvas text-fg-primary font-sans">
+      {/* Cyber-Ops Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/90 px-4 sm:px-5 py-3 shadow-md">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <button
             onClick={() => router.push(`/incidents/${incident.id}`)}
-            className="inline-flex items-center gap-1.5 text-[11px] text-fg-muted transition-colors hover:text-fg-primary"
+            className="inline-flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg-primary transition-colors"
           >
-            <ArrowLeft className="h-3 w-3" />
+            <ArrowLeft className="h-3.5 w-3.5" />
             Back
           </button>
           <div className="h-4 w-px bg-border" />
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-critical animate-pulse" />
-            <span className="font-mono text-xs font-bold text-fg-primary">WAR ROOM</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-critical opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
+            </span>
+            <span className="font-mono text-xs font-extrabold uppercase tracking-widest text-fg-primary">
+              DIGITAL WAR ROOM
+            </span>
           </div>
-          <div className="h-4 w-px bg-border" />
-          <span className="font-mono text-[10px] text-fg-muted">INC-{String(incident.id).padStart(4, "0")}</span>
+          <span className="font-mono text-xs text-fg-muted">INC-{String(incident.id).padStart(4, "0")}</span>
           <SeverityBadge severity={incident.severity} />
           <StatusBadge status={incident.status} />
         </div>
-        <div className="flex items-center gap-3">
-          {/* Dispatch Audio Toggle */}
+
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <button
             onClick={() => setDispatchEnabled(!dispatchEnabled)}
-            className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[9px] font-bold uppercase tracking-wider transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all ${
               dispatchEnabled
-                ? "border-amber/40 bg-amber/10 text-amber"
-                : "border-border bg-surface text-fg-muted hover:border-amber/40"
+                ? "border-amber/50 bg-amber/10 text-amber shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                : "border-border bg-surface text-fg-muted hover:border-border"
             }`}
           >
-            {dispatchEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-            Dispatch {dispatchEnabled ? "On" : "Off"}
+            {dispatchEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            Audio Dispatch {dispatchEnabled ? "ON" : "OFF"}
           </button>
-          <div className="h-4 w-px bg-border" />
-          <div className="flex items-center gap-1.5">
-            <Users className="h-3 w-3 text-amber" />
-            <span className="text-[10px] text-fg-muted">3 responders</span>
+
+          <div className="flex items-center gap-2 font-mono text-xs text-fg-muted border-l border-border pl-4">
+            <Clock className="h-3.5 w-3.5 text-healthy" />
+            <span>ELAPSED: {getDuration(incident.created_at)}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Clock className="h-3 w-3 text-fg-muted" />
-            <span className="font-mono text-[10px] text-fg-muted">{getDuration(incident.created_at)}</span>
-          </div>
-          <span className={`text-[9px] font-bold uppercase tracking-wider ${escalation === "level_3" ? "text-critical" : escalation === "level_2" ? "text-degraded" : "text-amber"}`}>
-            {escalation.replace("level_", "L")}
-          </span>
         </div>
       </div>
 
-      {/* Split View */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Pane: Chat + Logs */}
-        <div className="flex flex-1 flex-col border-r border-border">
-          {/* Tab Bar */}
-          <div className="flex items-center border-b border-border bg-surface">
+      {/* Main Command Workspace */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        {/* Left Pane: Chat Stream & Telemetry Feed */}
+        <div className="flex h-[65vh] shrink-0 flex-col border-b border-border bg-canvas lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink lg:border-b-0 lg:border-r">
+          <div className="flex items-center border-b border-border bg-surface/60 px-2">
             <button
               onClick={() => setActiveTab("chat")}
-              className={`flex items-center gap-1.5 border-b-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
                 activeTab === "chat"
-                  ? "border-amber text-amber"
+                  ? "border-healthy text-healthy"
                   : "border-transparent text-fg-muted hover:text-fg-primary"
               }`}
             >
-              <Terminal className="h-3 w-3" />
-              Chat & Commands
+              <Terminal className="h-3.5 w-3.5" />
+              War Room Terminal Chat
             </button>
             <button
               onClick={() => setActiveTab("logs")}
-              className={`flex items-center gap-1.5 border-b-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors ${
                 activeTab === "logs"
-                  ? "border-amber text-amber"
+                  ? "border-healthy text-healthy"
                   : "border-transparent text-fg-muted hover:text-fg-primary"
               }`}
             >
-              <Zap className="h-3 w-3" />
-              Live Logs ({logs.length})
+              <Zap className="h-3.5 w-3.5 text-amber" />
+              Telemetry Feed ({logs.length})
             </button>
           </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden p-4">
             {activeTab === "chat" ? (
               <div className="flex h-full flex-col">
-                <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3 space-y-2">
+                <div ref={chatScrollRef} className="flex-1 overflow-y-auto space-y-3 font-mono text-xs pr-2">
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex gap-2 ${msg.type === "system" ? "justify-center" : ""}`}>
                       {msg.type === "system" ? (
-                        <span className="rounded bg-elevated px-2 py-1 text-[10px] text-fg-muted">
+                        <span className="rounded bg-surface/80 border border-border px-3 py-1 text-[11px] text-fg-muted shadow-inner">
                           [{msg.timestamp}] {msg.message}
                         </span>
-                      ) : msg.type === "voice" ? (
-                        <div className="flex flex-col gap-1 max-w-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="shrink-0 font-mono text-[10px] text-healthy">[{msg.timestamp}]</span>
-                            <span className="shrink-0 text-[10px] font-bold text-fg-primary">{msg.user}</span>
-                          </div>
-                          {msg.audioUrl && (
-                            <VoiceNotePlayer user={msg.user} audioUrl={msg.audioUrl} timestamp={msg.timestamp} />
-                          )}
-                        </div>
                       ) : msg.type === "command" ? (
-                        <div className="flex gap-2">
-                          <span className="shrink-0 font-mono text-[10px] text-healthy">[{msg.timestamp}]</span>
-                          <span className="shrink-0 font-mono text-[10px] font-bold text-amber">&gt; {msg.user}</span>
-                          <span className="font-mono text-[10px] text-amber">{msg.message}</span>
+                        <div className="flex gap-2 items-start bg-surface/40 p-2 rounded border border-border">
+                          <span className="text-fg-muted shrink-0">[{msg.timestamp}]</span>
+                          <span className="font-bold text-amber shrink-0">&gt; {msg.user}:</span>
+                          <span className="text-emerald-300 font-semibold">{msg.message}</span>
                         </div>
                       ) : (
-                        <div className="flex gap-2">
-                          <span className="shrink-0 font-mono text-[10px] text-healthy">[{msg.timestamp}]</span>
-                          <span className="shrink-0 text-[10px] font-bold text-fg-primary">{msg.user}:</span>
-                          <span className="text-[10px] text-fg-secondary">{msg.message}</span>
+                        <div className="flex gap-2 items-start bg-surface/30 p-2 rounded border border-border">
+                          <span className="text-fg-muted shrink-0">[{msg.timestamp}]</span>
+                          <span className="font-bold text-healthy shrink-0">{msg.user}:</span>
+                          <span className="text-fg-primary">{msg.message}</span>
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
 
-                {/* Recording Indicator */}
-                {isRecording && (
-                  <div className="flex items-center gap-2 border-t border-critical/30 bg-critical/5 px-3 py-2">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-critical" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-critical">Recording Audio...</span>
-                    <span className="font-mono text-[10px] text-critical">{formatRecordingTime(recordingTime)}</span>
-                  </div>
-                )}
-
-                <form onSubmit={handleSend} className="border-t border-border p-2">
-                  <div className="flex items-center gap-2 rounded border border-border bg-canvas px-2 py-1.5">
-                    <span className="font-mono text-[10px] font-bold text-amber">&gt;_</span>
+                <form onSubmit={handleSend} className="mt-3 border-t border-border pt-3">
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/80 px-3 py-2 shadow-inner">
+                    <span className="font-mono text-xs font-bold text-healthy">&gt;_</span>
                     <input
                       type="text"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Type message or command (/ack, /escalate, /attach-log)..."
-                      className="flex-1 bg-transparent font-mono text-[11px] text-fg-primary placeholder-fg-muted/40 outline-none"
-                      disabled={isRecording}
+                      placeholder="Type message or command (/ack, /escalate, /status, /help)..."
+                      className="flex-1 bg-transparent font-mono text-xs text-fg-primary placeholder-fg-muted outline-none"
                     />
-                    {/* Mic Button */}
-                    <button
-                      type="button"
-                      onClick={isRecording ? stopRecording : startRecording}
-                      className={`rounded p-1 transition-colors ${
-                        isRecording
-                          ? "text-critical animate-pulse"
-                          : "text-fg-muted hover:text-amber"
-                      }`}
-                    >
-                      {isRecording ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
-                    </button>
-                    <button type="submit" className="rounded p-1 text-amber transition-colors hover:text-amber-hover" disabled={isRecording}>
-                      <Send className="h-3 w-3" />
+                    <button type="submit" className="rounded p-1.5 text-healthy hover:bg-emerald-500/20 transition-all">
+                      <Send className="h-4 w-4" />
                     </button>
                   </div>
                 </form>
               </div>
             ) : (
-              <div ref={logScrollRef} className="h-full overflow-y-auto p-3 font-mono text-[10px] leading-relaxed">
-                {logs.length === 0 ? (
-                  <p className="text-fg-muted/40">Awaiting telemetry data...</p>
-                ) : (
-                  logs.map((log) => (
-                    <div key={log.id} className="flex gap-2">
-                      <span className="shrink-0 text-healthy">[{log.timestamp}]</span>
-                      <span className={`shrink-0 font-bold ${
-                        log.level === "error" ? "text-critical" : log.level === "warn" ? "text-amber" : "text-fg-muted"
-                      }`}>
-                        {log.level === "error" ? "[ERR]" : log.level === "warn" ? "[WRN]" : "[INF]"}
-                      </span>
-                      <span className="text-fg-secondary">{log.message}</span>
-                    </div>
-                  ))
-                )}
+              <div ref={logScrollRef} className="h-full overflow-y-auto space-y-1.5 font-mono text-xs">
+                {logs.map((log) => (
+                  <div key={log.id} className="flex gap-3 bg-surface/40 p-2 rounded border border-border/60">
+                    <span className="text-fg-muted shrink-0">[{new Date(log.logged_at).toLocaleTimeString()}]</span>
+                    <span className={`font-bold shrink-0 ${log.level === "error" ? "text-rose-500" : log.level === "warn" ? "text-amber" : "text-blue-400"}`}>
+                      [{log.level.toUpperCase()}]
+                    </span>
+                    <span className="text-fg-secondary">{log.message}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Pane: Root Cause + Actions */}
-        <div className="flex w-80 flex-col overflow-y-auto bg-surface">
-          {/* Incident Summary */}
-          <div className="border-b border-border p-4">
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-fg-primary">{incident.title}</h2>
-            <p className="text-[10px] text-fg-muted">{incident.description || "No description provided."}</p>
-            <div className="mt-2 flex flex-wrap gap-1">
+          {/* Right Pane: Root Cause Hypotheses + Quick Controls */}
+          <div className="flex w-full shrink-0 flex-col bg-surface/40 border-t border-border p-4 space-y-5 lg:w-96 lg:overflow-y-auto lg:border-t-0 lg:border-l lg:p-5">
+          {/* Incident Info Card */}
+          <div className="rounded-lg border border-border bg-surface/60 p-4">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-fg-primary mb-1">{incident.title}</h2>
+            <p className="text-[11px] text-fg-muted leading-relaxed mb-3">{incident.description || "No details provided."}</p>
+            <div className="flex flex-wrap gap-1.5">
               {incident.services?.map((s) => (
-                <span key={s.id} className="rounded border border-border bg-canvas px-1.5 py-0.5 text-[8px] text-fg-muted">
+                <span key={s.id} className="rounded bg-elevated border border-border px-2 py-0.5 text-[9px] font-mono text-healthy">
                   {s.name}
                 </span>
               ))}
             </div>
           </div>
 
-          {/* Root Cause Hypotheses */}
-          <div className="border-b border-border p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Lightbulb className="h-3.5 w-3.5 text-amber" />
-              <h3 className="text-[10px] uppercase tracking-widest font-bold text-fg-primary">Root Cause Analysis</h3>
+          {/* Root Cause Hypotheses Panel */}
+          <div className="rounded-lg border border-border bg-surface/60 p-4">
+            <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-amber" />
+                <h3 className="text-xs font-bold uppercase tracking-widest text-fg-primary">
+                  Root Cause Hypotheses ({hypotheses.length})
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAddHypothesis(!showAddHypothesis)}
+                className="rounded border border-amber-500/40 bg-amber-500/10 p-1 text-amber hover:bg-amber-500/20 transition-all"
+                title="Add Root Cause Hypothesis"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <div className="space-y-2">
-              {rootCauseHypotheses.map((h) => (
+
+            {/* Create Hypothesis Form */}
+            {showAddHypothesis && (
+              <div className="mb-4 rounded-lg border border-amber-500/30 bg-canvas p-3 space-y-2">
+                <input
+                  type="text"
+                  placeholder="Hypothesis Title (e.g. DB Connection Exhaustion)"
+                  value={newHypothesisTitle}
+                  onChange={(e) => setNewHypothesisTitle(e.target.value)}
+                  className="w-full rounded border border-border bg-surface px-2.5 py-1 text-xs text-fg-primary outline-none focus:border-amber"
+                />
+                <div>
+                  <div className="flex justify-between text-[10px] text-fg-muted mb-1">
+                    <span>Confidence Score</span>
+                    <span className="font-mono text-amber">{newHypothesisConfidence}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={newHypothesisConfidence}
+                    onChange={(e) => setNewHypothesisConfidence(Number(e.target.value))}
+                    className="w-full accent-amber-400"
+                  />
+                </div>
+                <textarea
+                  placeholder="Evidence list (1 per line)..."
+                  value={newHypothesisEvidence}
+                  onChange={(e) => setNewHypothesisEvidence(e.target.value)}
+                  rows={2}
+                  className="w-full rounded border border-border bg-surface px-2.5 py-1 text-xs text-fg-primary outline-none focus:border-amber resize-none"
+                />
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    onClick={() => setShowAddHypothesis(false)}
+                    className="rounded border border-border px-2.5 py-1 text-[10px] text-fg-muted hover:bg-surface"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateHypothesis}
+                    disabled={!newHypothesisTitle.trim() || submittingHypothesis}
+                    className="rounded bg-amber-500 px-3 py-1 text-[10px] font-bold text-black hover:bg-amber disabled:opacity-50"
+                  >
+                    Save Hypothesis
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Hypotheses List */}
+            <div className="space-y-2.5">
+              {hypotheses.map((h) => (
                 <div
                   key={h.id}
-                  className={`rounded border p-2.5 ${
+                  className={`rounded-lg border p-3 transition-all ${
                     h.status === "ruled_out"
-                      ? "border-border bg-canvas opacity-50"
+                      ? "border-border bg-canvas/40 opacity-60"
+                      : h.status === "confirmed"
+                      ? "border-healthy/40 bg-healthy/10"
                       : h.status === "investigating"
-                      ? "border-amber/40 bg-amber/5"
-                      : "border-border bg-canvas"
+                      ? "border-amber/40 bg-amber/10"
+                      : "border-border bg-canvas/80"
                   }`}
                 >
-                  <div className="mb-1.5 flex items-start justify-between">
-                    <span className={`text-[10px] font-bold ${h.status === "ruled_out" ? "text-fg-muted line-through" : "text-fg-primary"}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <span className={`text-xs font-bold ${h.status === "ruled_out" ? "line-through text-fg-muted" : "text-fg-primary"}`}>
                       {h.title}
                     </span>
-                    {h.status === "investigating" ? (
-                      <span className="shrink-0 rounded bg-amber/10 px-1.5 py-0.5 text-[8px] font-bold text-amber">ACTIVE</span>
-                    ) : h.status === "ruled_out" ? (
-                      <XCircle className="h-3 w-3 shrink-0 text-fg-muted" />
-                    ) : null}
+                    <button
+                      onClick={() => handleDeleteHypothesis(h.id)}
+                      className="text-fg-muted hover:text-critical transition-colors"
+                      title="Delete hypothesis"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
-                  <div className="mb-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[8px] uppercase tracking-wider text-fg-muted">Confidence</span>
-                      <span className={`font-mono text-[9px] font-bold ${
-                        h.confidence >= 70 ? "text-amber" : h.confidence >= 40 ? "text-degraded" : "text-fg-muted"
-                      }`}>
-                        {h.confidence}%
-                      </span>
+
+                  {/* Confidence meter */}
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between text-[10px] text-fg-muted mb-0.5">
+                      <span>CONFIDENCE</span>
+                      <span className="font-mono text-amber font-bold">{h.confidence}%</span>
                     </div>
-                    <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-elevated">
+                    <div className="h-1.5 w-full bg-elevated rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${
-                          h.confidence >= 70 ? "bg-amber" : h.confidence >= 40 ? "bg-degraded" : "bg-fg-muted"
-                        }`}
+                        className="h-full bg-amber rounded-full transition-all"
                         style={{ width: `${h.confidence}%` }}
                       />
                     </div>
                   </div>
-                  <div className="space-y-0.5">
-                    {h.evidence.map((e, i) => (
-                      <div key={i} className="flex items-center gap-1">
-                        <span className="h-0.5 w-0.5 rounded-full bg-fg-muted" />
-                        <span className="text-[8px] text-fg-muted">{e}</span>
-                      </div>
-                    ))}
+
+                  {/* Evidence List */}
+                  {h.evidence && h.evidence.length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {h.evidence.map((ev, i) => (
+                        <p key={i} className="text-[10px] text-fg-muted flex items-center gap-1.5">
+                          <span className="h-1 w-1 rounded-full bg-amber" />
+                          {ev}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Action Buttons for Hypothesis Status */}
+                  <div className="flex items-center gap-1 pt-1 border-t border-border/80">
+                    <button
+                      onClick={() => handleUpdateHypothesisStatus(h.id, "investigating")}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                        h.status === "investigating" ? "bg-amber-500 text-black" : "bg-elevated text-fg-muted hover:bg-hover-row"
+                      }`}
+                    >
+                      INVESTIGATING
+                    </button>
+                    <button
+                      onClick={() => handleUpdateHypothesisStatus(h.id, "confirmed")}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                        h.status === "confirmed" ? "bg-healthy text-black" : "bg-elevated text-fg-muted hover:bg-hover-row"
+                      }`}
+                    >
+                      CONFIRMED
+                    </button>
+                    <button
+                      onClick={() => handleUpdateHypothesisStatus(h.id, "ruled_out")}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                        h.status === "ruled_out" ? "bg-critical text-white" : "bg-elevated text-fg-muted hover:bg-hover-row"
+                      }`}
+                    >
+                      RULED OUT
+                    </button>
                   </div>
-                  <p className="mt-1 text-[8px] text-fg-muted">Owner: {h.owner}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Quick Actions */}
-          <div className="p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Zap className="h-3.5 w-3.5 text-amber" />
-              <h3 className="text-[10px] uppercase tracking-widest font-bold text-fg-primary">Quick Actions</h3>
-            </div>
-            <div className="space-y-1.5">
-              <button
-                onClick={handleAcknowledge}
-                disabled={acknowledging || acknowledged}
-                className={`flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-[10px] transition-colors ${
-                  acknowledged
-                    ? "border-healthy/40 bg-healthy/10 text-healthy"
-                    : "border-border bg-canvas text-fg-primary hover:border-amber/40 hover:bg-hover-row"
-                } disabled:opacity-60`}
-              >
-                <CheckCircle className={`h-3 w-3 ${acknowledged ? "text-healthy" : "text-healthy"}`} />
-                {acknowledged ? "Acknowledged ✓" : acknowledging ? "Acknowledging..." : "Acknowledge Incident"}
-              </button>
-              <button
-                onClick={handleEscalate}
-                disabled={escalating || escalated}
-                className={`flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-[10px] transition-colors ${
-                  escalated
-                    ? "border-critical/40 bg-critical/10 text-critical"
-                    : "border-border bg-canvas text-fg-primary hover:border-amber/40 hover:bg-hover-row"
-                } disabled:opacity-60`}
-              >
-                <AlertTriangle className={`h-3 w-3 ${escalated ? "text-critical" : "text-amber"}`} />
-                {escalated ? "Escalated ✓" : escalating ? "Escalating..." : "Escalate to CTO"}
-              </button>
-              <button
-                onClick={handleAttachLogs}
-                disabled={logsAttached}
-                className={`flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-[10px] transition-colors ${
-                  logsAttached
-                    ? "border-info/40 bg-info/10 text-info"
-                    : "border-border bg-canvas text-fg-primary hover:border-amber/40 hover:bg-hover-row"
-                } disabled:opacity-60`}
-              >
-                <Paperclip className={`h-3 w-3 ${logsAttached ? "text-info" : "text-info"}`} />
-                {logsAttached ? "Logs Attached ✓" : "Attach Log Stream"}
-              </button>
-            </div>
+          {/* Quick Command Actions */}
+          <div className="rounded-lg border border-border bg-surface/60 p-4 space-y-2">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-fg-primary mb-2">Command Remediation</h3>
+            <button
+              onClick={handleAcknowledge}
+              disabled={acknowledged || acknowledging}
+              className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs font-bold transition-all ${
+                acknowledged
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-healthy"
+                  : "border-border bg-surface text-fg-primary hover:border-emerald-500/50"
+              }`}
+            >
+              <span>{acknowledged ? "ACKNOWLEDGED ✓" : "ACKNOWLEDGE INCIDENT"}</span>
+              <CheckCircle className="h-4 w-4 text-healthy" />
+            </button>
+            <button
+              onClick={handleEscalate}
+              disabled={escalated || escalating}
+              className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs font-bold transition-all ${
+                escalated
+                  ? "border-rose-500/40 bg-critical/10 text-critical"
+                  : "border-border bg-surface text-fg-primary hover:border-rose-500/50"
+              }`}
+            >
+              <span>{escalated ? "ESCALATED ✓" : "ESCALATE SEVERITY"}</span>
+              <AlertTriangle className="h-4 w-4 text-amber" />
+            </button>
+            <button
+              onClick={handleAttachLogs}
+              disabled={logsAttached}
+              className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs font-bold transition-all ${
+                logsAttached
+                  ? "border-blue-500/40 bg-blue-500/10 text-blue-400"
+                  : "border-border bg-surface text-fg-primary hover:border-blue-500/50"
+              }`}
+            >
+              <span>{logsAttached ? "LOGS ATTACHED ✓" : "ATTACH TELEMETRY BUS"}</span>
+              <Paperclip className="h-4 w-4 text-blue-400" />
+            </button>
           </div>
+
+          <AgentPanel incidentId={incident.id} embedded />
         </div>
       </div>
     </div>

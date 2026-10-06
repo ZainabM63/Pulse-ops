@@ -23,6 +23,11 @@ class ActivityLogController extends Controller
                     'status_change' => $activity->metadata['new'] === 'resolved' ? 'info' : 'warn',
                     'severity_change' => 'error',
                     'assignment' => 'info',
+                    'zoom_bridge' => 'info',
+                    'slack_alert' => 'info',
+                    'postmortem_export' => 'info',
+                    'agent_action' => 'info',
+                    'command' => 'info',
                     default => 'info',
                 };
 

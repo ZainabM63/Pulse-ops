@@ -2,16 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import { useTheme } from "next-themes";
-import { api } from "@/lib/api";
-import { ChevronDown, LogOut, Sun, Moon, Monitor, Zap, Clock, Users } from "lucide-react";
-import type { PaginatedResponse, Incident, Environment } from "@/types";
-
-interface DashboardData {
-  active_incidents: number;
-  critical_count: number;
-  major_count: number;
-}
+import { ChevronDown, LogOut, Sun, Moon, Monitor, Zap, Clock, Users, Menu, X } from "lucide-react";
+import type { Environment } from "@/types";
 
 const ENVIRONMENTS: { name: Environment; label: string; color: string }[] = [
   { name: "prod", label: "PROD", color: "bg-healthy text-white" },
@@ -19,7 +13,7 @@ const ENVIRONMENTS: { name: Environment; label: string; color: string }[] = [
   { name: "dev", label: "DEV", color: "bg-fg-muted text-white" },
 ];
 
-export default function Shell() {
+export default function Shell({ menuOpen, onMenuToggle }: { menuOpen?: boolean; onMenuToggle?: () => void }) {
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -27,28 +21,24 @@ export default function Shell() {
   const [env, setEnv] = useState<Environment>("prod");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [shiftRemaining, setShiftRemaining] = useState("04h 12m");
   const [mttr, setMttr] = useState("—");
   const [mtta] = useState("1m 24s");
-  const [shiftRemaining, setShiftRemaining] = useState("04h 12m");
-  const [resolved, setResolved] = useState(0);
+
+  const { stats, incidents } = useDashboardData();
 
   useEffect(() => {
-    api.get<DashboardData>("/dashboard").then(setDashboard).catch(() => {});
-    api.get<PaginatedResponse<Incident>>("/incidents?per_page=50").then((res) => {
-      setResolved(res.total);
-      const resolvedIncidents = res.data.filter((i) => i.status === "resolved" && i.resolved_at);
-      if (resolvedIncidents.length > 0) {
-        const totalMin = resolvedIncidents.reduce((acc, i) => {
-          return acc + (new Date(i.resolved_at!).getTime() - new Date(i.created_at).getTime()) / 60000;
-        }, 0);
-        const avg = totalMin / resolvedIncidents.length;
-        const m = Math.floor(avg);
-        const s = Math.round((avg - m) * 60);
-        setMttr(`${m}m ${String(s).padStart(2, "0")}s`);
-      }
-    }).catch(() => {});
-  }, []);
+    const resolvedIncidents = incidents.filter((i) => i.status === "resolved" && i.resolved_at);
+    if (resolvedIncidents.length > 0) {
+      const totalMin = resolvedIncidents.reduce((acc, i) => {
+        return acc + (new Date(i.resolved_at!).getTime() - new Date(i.created_at).getTime()) / 60000;
+      }, 0);
+      const avg = totalMin / resolvedIncidents.length;
+      const m = Math.floor(avg);
+      const s = Math.round((avg - m) * 60);
+      setMttr(`${m}m ${String(s).padStart(2, "0")}s`);
+    }
+  }, [incidents]);
 
   useEffect(() => {
     const tick = () => {
@@ -76,14 +66,24 @@ export default function Shell() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const activeCount = dashboard?.active_incidents ?? 0;
-  const critCount = dashboard?.critical_count ?? 0;
+  const activeCount = stats?.active_incidents ?? 0;
+  const critCount = stats?.critical_count ?? 0;
   const currentEnv = ENVIRONMENTS.find((e) => e.name === env)!;
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
 
   return (
-    <header className="flex h-12 shrink-0 items-center border-b border-border bg-surface px-3 gap-3">
+    <header className="relative z-50 flex h-12 shrink-0 items-center border-b border-border bg-surface px-3 gap-3">
+      {/* Mobile menu toggle */}
+      <button
+        onClick={onMenuToggle}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-card text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary lg:hidden"
+        title={menuOpen ? "Close menu" : "Open menu"}
+        aria-label={menuOpen ? "Close menu" : "Open menu"}
+      >
+        {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+      </button>
+
       {/* Logo */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber/10">
@@ -95,15 +95,15 @@ export default function Shell() {
           <span className="text-sm font-bold tracking-wider text-fg-primary">PULSE</span>
           <span className="text-sm font-bold tracking-wider text-amber">OPS</span>
         </div>
-        <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${currentEnv.color}`}>
+        <span className={`hidden sm:inline-flex text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${currentEnv.color}`}>
           {currentEnv.label}
         </span>
       </div>
 
-      <div className="h-5 w-px bg-border" />
+      <div className="hidden md:block h-5 w-px bg-border" />
 
       {/* Metrics */}
-      <div className="flex items-center gap-3 text-[10px] font-mono">
+      <div className="hidden md:flex items-center gap-3 text-[10px] font-mono">
         <div className="flex items-center gap-1.5">
           <span className="uppercase tracking-wider text-fg-muted">Active:</span>
           <span className="font-bold text-fg-primary">{activeCount}</span>
@@ -123,10 +123,10 @@ export default function Shell() {
         </div>
       </div>
 
-      <div className="h-5 w-px bg-border" />
+      <div className="hidden xl:block h-5 w-px bg-border" />
 
       {/* On-Call */}
-      <div className="flex items-center gap-2 shrink-0 rounded border border-border bg-card px-2.5 py-1">
+      <div className="hidden xl:flex items-center gap-2 shrink-0 rounded border border-border bg-card px-2.5 py-1">
         <Users className="h-3 w-3 text-amber" />
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-glow" />
@@ -163,7 +163,7 @@ export default function Shell() {
           className="flex items-center gap-1.5 rounded border border-border bg-card px-2 py-1 text-[10px] uppercase tracking-wider text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
         >
           <Zap className="h-3 w-3 text-amber" />
-          <span>Workspace</span>
+          <span className="hidden sm:inline">Workspace</span>
           <ChevronDown className="h-3 w-3" />
         </button>
         {workspaceOpen && (

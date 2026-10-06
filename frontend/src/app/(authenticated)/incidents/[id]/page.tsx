@@ -7,6 +7,7 @@ import { StatusStepper } from "@/components/incidents/StatusStepper";
 import { ActivityFeed } from "@/components/incidents/ActivityFeed";
 import { EscalationTimer } from "@/components/incidents/EscalationTimer";
 import { QuickActions } from "@/components/incidents/QuickActions";
+import { AgentPanel } from "@/components/agent/AgentPanel";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getDuration, getEscalationLevel } from "@/types";
@@ -55,7 +56,7 @@ export default function IncidentDetailPage() {
 
   if (error || !incident) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <p className="text-sm text-critical">{error || "Incident not found"}</p>
         <button onClick={() => router.push("/incidents")} className="mt-2 text-xs text-amber hover:underline">
           ← Back to incidents
@@ -67,8 +68,8 @@ export default function IncidentDetailPage() {
   const escalation = getEscalationLevel(incident.created_at);
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center gap-3">
+    <div className="p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
           onClick={() => router.push("/incidents")}
           className="inline-flex items-center gap-1.5 text-[11px] text-fg-muted transition-colors hover:text-fg-primary"
@@ -115,7 +116,7 @@ export default function IncidentDetailPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex items-start justify-between">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm text-fg-muted">INC-{String(incident.id).padStart(4, "0")}</span>
           <SeverityBadge severity={incident.severity} />
@@ -124,7 +125,7 @@ export default function IncidentDetailPage() {
         <div className="text-right">
           <p className="font-mono text-[10px] text-fg-muted">Elapsed: {getDuration(incident.created_at)}</p>
           <p className="font-mono text-[10px] text-fg-muted">
-            Escalation: {escalation.replace("level_", "L")}
+            Escalation: {incident.status === "resolved" ? "Resolved" : escalation.replace("level_", "L")}
           </p>
         </div>
       </div>
@@ -161,9 +162,11 @@ export default function IncidentDetailPage() {
         </div>
 
         <div className="space-y-4">
-          <EscalationTimer createdAt={incident.created_at} severity={incident.severity} />
+          <EscalationTimer createdAt={incident.created_at} severity={incident.severity} status={incident.status} />
 
           <QuickActions incident={incident} />
+
+          <AgentPanel incidentId={incident.id} embedded />
 
           <div className="rounded border border-border bg-surface p-4">
             <h3 className="mb-2 text-[10px] uppercase tracking-widest text-fg-muted">Incident Details</h3>

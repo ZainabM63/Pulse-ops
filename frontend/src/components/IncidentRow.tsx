@@ -9,13 +9,6 @@ import { getDuration } from "@/types";
 import type { Incident, User } from "@/types";
 import { ExternalLink, CheckCircle, UserPlus, Check, Trash2 } from "lucide-react";
 
-const blastRadiusMock: Record<string, string> = {
-  critical: "~18,400",
-  major: "~8,200",
-  minor: "~1,100",
-  info: "~200",
-};
-
 interface Props {
   incident: Incident;
   onRefresh: () => void;
@@ -24,7 +17,7 @@ interface Props {
 export function IncidentRow({ incident, onRefresh }: Props) {
   const router = useRouter();
   const isCritical = incident.severity === "critical";
-  const blastRadius = blastRadiusMock[incident.severity] || "~0";
+  const blastRadius = incident.blast_radius != null ? `~${incident.blast_radius.toLocaleString()}` : "~0";
   const [acknowledging, setAcknowledging] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -109,17 +102,18 @@ export function IncidentRow({ incident, onRefresh }: Props) {
   return (
     <div
       onClick={() => router.push(`/incidents/${incident.id}`)}
-      className={`grid grid-cols-[70px_1fr_90px_70px_150px_200px] gap-3 border-b border-border bg-surface px-4 py-2.5 transition-colors cursor-pointer hover:bg-hover-row ${
+      className={`flex flex-col gap-2 border-b border-border bg-surface px-4 py-3 transition-colors cursor-pointer hover:bg-hover-row lg:grid lg:grid-cols-[70px_1fr_90px_70px_150px_200px] lg:items-center lg:gap-3 lg:py-2.5 ${
         isCritical ? "border-l-2 border-l-critical glow-crimson" : ""
       }`}
     >
       <div className="flex items-center gap-2">
         <SeverityBadge severity={incident.severity} />
+        <span className="font-mono text-[10px] text-fg-muted lg:hidden">INC-{String(incident.id).padStart(4, "0")}</span>
       </div>
 
       <div className="min-w-0 flex items-center">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
+          <div className="hidden items-center gap-1.5 lg:flex">
             <span className="font-mono text-[10px] text-fg-muted">INC-{String(incident.id).padStart(4, "0")}</span>
           </div>
           <p className="truncate text-[11px] font-medium text-fg-primary">{incident.title}</p>
@@ -133,29 +127,31 @@ export function IncidentRow({ incident, onRefresh }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center">
-        <span className="font-mono text-[11px] text-amber">{blastRadius}</span>
-        <span className="ml-1 text-[9px] text-fg-muted">users</span>
-      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 lg:contents">
+        <div className="flex items-center">
+          <span className="font-mono text-[11px] text-amber">{blastRadius}</span>
+          <span className="ml-1 text-[9px] text-fg-muted">users</span>
+        </div>
 
-      <div className="flex items-center">
-        <span className="font-mono text-[11px] text-fg-muted">{getDuration(incident.created_at)}</span>
-      </div>
+        <div className="flex items-center">
+          <span className="font-mono text-[11px] text-fg-muted">{getDuration(incident.created_at)}</span>
+        </div>
 
-      <div className="flex items-center min-w-0">
-        {incident.assignee ? (
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber/20 text-[9px] font-bold text-amber">
-              {incident.assignee.name?.charAt(0)}
+        <div className="flex items-center min-w-0">
+          {incident.assignee ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber/20 text-[9px] font-bold text-amber">
+                {incident.assignee.name?.charAt(0)}
+              </div>
+              <span className="truncate text-[10px] text-fg-secondary">{incident.assignee.name}</span>
             </div>
-            <span className="truncate text-[10px] text-fg-secondary">{incident.assignee.name}</span>
-          </div>
-        ) : (
-          <span className="text-[10px] italic text-fg-muted">Unassigned</span>
-        )}
+          ) : (
+            <span className="text-[10px] italic text-fg-muted">Unassigned</span>
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex items-center justify-start gap-1 lg:justify-end">
         <StatusBadge status={incident.status} />
         <button
           onClick={(e) => { e.stopPropagation(); router.push(`/incidents/${incident.id}`); }}

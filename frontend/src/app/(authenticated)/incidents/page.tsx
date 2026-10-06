@@ -35,8 +35,8 @@ export default function IncidentsPage() {
     api.get<PaginatedResponse<Incident>>(`/incidents?page=${p}&per_page=15`)
       .then((res) => {
         setIncidents(res.data);
-        setLastPage(res.last_page);
-        setTotal(res.total);
+        setLastPage(res.meta.last_page);
+        setTotal(res.meta.total);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -102,30 +102,30 @@ export default function IncidentsPage() {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-critical" />
           <div>
             <h1 className="text-sm font-bold uppercase tracking-wider">Active Incident Command</h1>
             <p className="mt-0.5 text-[10px] text-fg-muted">Real-time incident response matrix</p>
           </div>
-          <div className="ml-3 flex items-center gap-1.5 rounded border border-border bg-surface px-2 py-0.5">
+          <div className="flex items-center gap-1.5 rounded border border-border bg-surface px-2 py-0.5">
             <span className="text-[9px] uppercase tracking-widest text-fg-muted">MTTR:</span>
             <span className="font-mono text-[11px] font-bold text-healthy">{computeMttr()}</span>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => showToast("Simulate Outage: Synthetic P0 alert dispatched to test channel")}
-            className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
           >
             <Radio className="h-3 w-3" />
             Simulate Outage Alert
           </button>
           <button
             onClick={() => showToast("Runbook execution initiated for active incidents")}
-            className="inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
           >
             <Play className="h-3 w-3" />
             Execute Runbook
@@ -140,8 +140,8 @@ export default function IncidentsPage() {
         </div>
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
-        <div className="relative flex-1 max-w-md">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-md">
           <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-fg-muted" />
           <input
             type="text"
@@ -151,7 +151,7 @@ export default function IncidentsPage() {
             className="w-full rounded border border-border bg-surface py-1.5 pl-7 pr-3 font-mono text-[11px] text-fg-primary placeholder-fg-muted/60 outline-none transition-colors focus:border-amber"
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {filterPills.map((pill) => (
             <button
               key={pill.key}
@@ -170,7 +170,7 @@ export default function IncidentsPage() {
       </div>
 
       <div className="rounded border border-border bg-surface">
-        <div className="grid grid-cols-[70px_1fr_90px_70px_150px_200px] gap-3 border-b border-border px-4 py-2">
+        <div className="hidden lg:grid lg:grid-cols-[70px_1fr_90px_70px_150px_200px] gap-3 border-b border-border px-4 py-2">
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Severity</span>
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Incident</span>
           <span className="text-[9px] uppercase tracking-widest text-fg-muted">Blast</span>

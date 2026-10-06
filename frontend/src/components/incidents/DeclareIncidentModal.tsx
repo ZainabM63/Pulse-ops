@@ -65,7 +65,7 @@ export function DeclareIncidentModal({ open, onClose, onCreated }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded border border-border bg-surface shadow-2xl shadow-black/20">
+      <div className="mx-4 w-full max-w-lg rounded border border-border bg-surface shadow-2xl shadow-black/20">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider text-critical">Declare Incident</h2>

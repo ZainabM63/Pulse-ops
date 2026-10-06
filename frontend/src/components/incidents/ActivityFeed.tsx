@@ -10,6 +10,12 @@ const typeConfig: Record<string, { color: string; label: string }> = {
   status_change: { color: "text-amber", label: "Status Change" },
   severity_change: { color: "text-amber", label: "Severity Change" },
   assignment: { color: "text-healthy", label: "Assignment" },
+  zoom_bridge: { color: "text-info", label: "Zoom Bridge" },
+  slack_alert: { color: "text-info", label: "Slack Alert" },
+  postmortem_export: { color: "text-info", label: "Post-Mortem" },
+  agent_action: { color: "text-amber", label: "Agent Action" },
+  command: { color: "text-fg-muted", label: "Command" },
+  chat: { color: "text-fg-muted", label: "Chat" },
 };
 
 interface Props {
@@ -27,8 +33,9 @@ export function ActivityFeed({ activities, incidentId, onCommentAdded }: Props) 
     if (!comment.trim()) return;
     setSending(true);
     try {
-      await api.put(`/incidents/${incidentId}`, {
-        comment: comment.trim(),
+      await api.post(`/incidents/${incidentId}/activity`, {
+        type: "comment",
+        body: comment.trim(),
       });
       setComment("");
       onCommentAdded();

@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import type { Service, PaginatedResponse } from "@/types";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import { Activity } from "lucide-react";
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -12,27 +10,8 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   major_outage: { label: "OUTAGE", color: "text-critical", bg: "bg-critical/10 border-critical/30" },
 };
 
-const mockMetrics: Record<string, { uptime: string; latency: string }> = {
-  "auth-service": { uptime: "99.99%", latency: "12ms" },
-  "api-gateway": { uptime: "94.20%", latency: "1,420ms" },
-  "payment-processor": { uptime: "98.50%", latency: "89ms" },
-  "notification-service": { uptime: "99.90%", latency: "8ms" },
-};
-
-function getMetrics(slug: string, status: string) {
-  if (mockMetrics[slug]) return mockMetrics[slug];
-  if (status === "operational") return { uptime: "99.95%", latency: `${Math.floor(Math.random() * 50 + 5)}ms` };
-  return { uptime: "96.00%", latency: `${Math.floor(Math.random() * 500 + 200)}ms` };
-}
-
 export function ServiceHealthGrid() {
-  const [services, setServices] = useState<Service[]>([]);
-
-  useEffect(() => {
-    api.get<PaginatedResponse<Service>>("/services?per_page=100")
-      .then((res) => setServices(res.data))
-      .catch(() => {});
-  }, []);
+  const { services } = useDashboardData();
 
   if (services.length === 0) return null;
 
@@ -45,7 +24,6 @@ export function ServiceHealthGrid() {
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {services.map((service) => {
           const cfg = statusConfig[service.status] || statusConfig.operational;
-          const metrics = getMetrics(service.slug, service.status);
           return (
             <div
               key={service.id}
@@ -61,12 +39,12 @@ export function ServiceHealthGrid() {
                 <div>
                   <span className="text-fg-muted">Uptime </span>
                   <span className={`font-bold ${service.status === "operational" ? "text-healthy" : "text-amber"}`}>
-                    {metrics.uptime}
+                    {service.uptime}%
                   </span>
                 </div>
                 <div>
                   <span className="text-fg-muted">Latency </span>
-                  <span className="font-bold text-fg-primary">{metrics.latency}</span>
+                  <span className="font-bold text-fg-primary">{service.latency_ms}ms</span>
                 </div>
               </div>
             </div>

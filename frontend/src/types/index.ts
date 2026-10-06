@@ -42,6 +42,12 @@ export interface Service {
   status: "operational" | "degraded" | "partial_outage" | "major_outage";
   severity_level: string;
   metadata: Record<string, unknown> | null;
+  uptime: number;
+  latency_ms: number;
+  error_rate: number;
+  slo_budget: number;
+  tier: number;
+  circuit_breaker_state: "closed" | "open" | "half_open";
   team: Team | null;
   created_at: string;
 }
@@ -50,6 +56,7 @@ export type EscalationLevel = "level_1" | "level_2" | "level_3";
 
 export interface Incident {
   id: number;
+  company_id: number;
   title: string;
   description: string | null;
   severity: "critical" | "major" | "minor" | "info";
@@ -60,6 +67,7 @@ export interface Incident {
   services: Service[];
   activities: IncidentActivity[];
   escalation_level: EscalationLevel;
+  blast_radius: number | null;
   acknowledged_at: string | null;
   resolved_at: string | null;
   created_at: string;
@@ -75,12 +83,44 @@ export interface IncidentActivity {
   created_at: string;
 }
 
+export interface IncidentHypothesis {
+  id: number;
+  incident_id: number;
+  company_id: number;
+  user_id: number | null;
+  title: string;
+  confidence: number;
+  status: "investigating" | "hypothesis" | "ruled_out" | "confirmed";
+  evidence: string[] | null;
+  owner: string | null;
+  user?: { id: number; name: string } | null;
+  created_at: string;
+}
+
+export interface TelemetryLog {
+  id: number;
+  company_id: number;
+  incident_id: number | null;
+  service_id: number | null;
+  level: "info" | "warn" | "error" | "cmd";
+  message: string;
+  source: string;
+  logged_at: string;
+  created_at: string;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
-  current_page: number;
-  last_page: number;
-  per_page: number;
-  total: number;
+  links: { first: string | null; last: string | null; prev: string | null; next: string | null };
+  meta: {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    path: string;
+    per_page: number;
+    to: number | null;
+    total: number;
+  };
 }
 
 export function getEscalationLevel(createdAt: string): EscalationLevel {
@@ -219,4 +259,52 @@ export const WAR_ROOM_COMMANDS: Record<WarRoomCommand, string> = {
   "/attach-log": "Attach log stream to incident",
   "/status": "Show current status",
   "/help": "Show available commands",
+};
+
+// ─── Agent ───
+export type AgentToolType =
+  | "restart_service" | "scale_resources" | "rollback_deployment"
+  | "send_notification" | "run_diagnostics" | "create_followup"
+  | "generate_postmortem" | "resolve_incident" | "update_service_status";
+
+export interface AgentAction {
+  id: number;
+  type: AgentToolType | string;
+  label: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  executed_at: string | null;
+  created_at: string;
+}
+
+export interface AgentRun {
+  id: number;
+  incident_id: number | null;
+  user: User;
+  title: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  mode: "sequential" | "autonomous";
+  metadata: Record<string, unknown> | null;
+  actions: AgentAction[];
+  incident: Incident | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const AGENT_TOOLS: Record<AgentToolType, {
+  label: string;
+  color: string;
+  description: string;
+}> = {
+  restart_service:     { label: "Restart Service",     color: "amber",    description: "Restart a degraded or failing service" },
+  scale_resources:     { label: "Scale Resources",     color: "info",     description: "Scale service replicas or resources" },
+  rollback_deployment: { label: "Rollback Deployment", color: "critical", description: "Roll back to a previous deployment version" },
+  send_notification:   { label: "Send Notification",   color: "amber",    description: "Send Slack alert to the team" },
+  run_diagnostics:     { label: "Run Diagnostics",     color: "healthy",  description: "Gather health data about services" },
+  create_followup:     { label: "Create Follow-up",    color: "info",     description: "Create a tracking follow-up incident" },
+  generate_postmortem: { label: "Generate Post-Mortem",color: "amber",    description: "Generate an incident post-mortem report" },
+  update_service_status:{ label: "Update Status",      color: "degraded", description: "Change the operational status of a service" },
+  resolve_incident:     { label: "Resolve Incident",   color: "healthy",  description: "Mark the incident as resolved" },
 };

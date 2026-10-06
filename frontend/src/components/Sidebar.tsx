@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/lib/api";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import { LayoutDashboard, AlertTriangle, Box, Users, LogOut, ChevronDown } from "lucide-react";
-import type { PaginatedResponse, Incident } from "@/types";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -15,20 +14,16 @@ const nav = [
   { href: "/teams", label: "Teams", icon: Users },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const [activeCount, setActiveCount] = useState<number | null>(null);
+  const { incidents } = useDashboardData();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
-  useEffect(() => {
-    api.get<PaginatedResponse<Incident>>("/incidents?per_page=1")
-      .then((res) => setActiveCount(res.total))
-      .catch(() => {});
-  }, []);
+  const activeCount = incidents.length;
 
   return (
-    <aside className="flex w-56 flex-col border-r border-border bg-surface">
+    <aside className="flex h-full w-60 flex-col border-r border-border bg-surface">
       {/* Workspace Selector */}
       <div className="px-3 py-3">
         <button
@@ -64,6 +59,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={`flex items-center gap-2.5 rounded px-2.5 py-1.5 text-xs transition-colors ${
                 active
                   ? "border-l-2 border-amber bg-amber/5 text-amber"
@@ -72,7 +68,7 @@ export default function Sidebar() {
             >
               <item.icon className="h-3.5 w-3.5 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.href === "/incidents" && activeCount !== null && activeCount > 0 && (
+              {item.href === "/incidents" && activeCount > 0 && (
                 <span className="rounded bg-critical/10 px-1.5 py-0.5 text-[9px] font-medium text-critical">
                   {activeCount} active
                 </span>
@@ -94,7 +90,7 @@ export default function Sidebar() {
               <p className="truncate text-[9px] uppercase tracking-wider text-fg-muted">{user?.role}</p>
             </div>
           </div>
-          <button onClick={logout} className="rounded p-1 text-fg-muted transition-colors hover:text-critical" title="Sign out">
+          <button onClick={() => { onNavigate?.(); logout(); }} className="rounded p-1 text-fg-muted transition-colors hover:text-critical" title="Sign out">
             <LogOut className="h-3.5 w-3.5" />
           </button>
         </div>

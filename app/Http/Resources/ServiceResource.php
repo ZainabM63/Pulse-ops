@@ -17,6 +17,12 @@ class ServiceResource extends JsonResource
             'status' => $this->status,
             'severity_level' => $this->severity_level,
             'metadata' => $this->metadata,
+            'uptime' => $this->uptime,
+            'latency_ms' => $this->latency_ms,
+            'error_rate' => $this->error_rate,
+            'slo_budget' => $this->slo_budget,
+            'tier' => $this->tier,
+            'circuit_breaker_state' => $this->circuit_breaker_state,
             'team' => new TeamResource($this->whenLoaded('team')),
             'created_at' => $this->created_at,
         ];

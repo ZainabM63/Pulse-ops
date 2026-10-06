@@ -11,6 +11,7 @@ class IncidentResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'company_id' => $this->company_id,
             'title' => $this->title,
             'description' => $this->description,
             'severity' => $this->severity,
@@ -20,6 +21,7 @@ class IncidentResource extends JsonResource
             'team' => new TeamResource($this->whenLoaded('team')),
             'services' => ServiceResource::collection($this->whenLoaded('services')),
             'activities' => IncidentActivityResource::collection($this->whenLoaded('activities')),
+            'blast_radius' => $this->blast_radius,
             'acknowledged_at' => $this->acknowledged_at,
             'resolved_at' => $this->resolved_at,
             'created_at' => $this->created_at,

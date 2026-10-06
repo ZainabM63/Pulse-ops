@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -13,6 +13,8 @@ export function clearToken() {
   localStorage.removeItem("pulseops_token");
 }
 
+const REQUEST_TIMEOUT = 15_000;
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -24,7 +26,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    signal: controller.signal,
+  });
+  clearTimeout(timeoutId);
 
   if (res.status === 401) {
     clearToken();
@@ -47,5 +57,7 @@ export const api = {
     request<T>(path, { method: "POST", body: data ? JSON.stringify(data) : undefined }),
   put: <T>(path: string, data?: unknown) =>
     request<T>(path, { method: "PUT", body: data ? JSON.stringify(data) : undefined }),
+  patch: <T>(path: string, data?: unknown) =>
+    request<T>(path, { method: "PATCH", body: data ? JSON.stringify(data) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

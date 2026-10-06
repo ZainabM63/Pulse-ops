@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { Team, PaginatedResponse } from "@/types";
 import { CreateTeamModal } from "@/components/teams/CreateTeamModal";
 import { EditTeamModal } from "@/components/teams/EditTeamModal";
-import { Users, Plus, Trash2 } from "lucide-react";
+import { Users, Plus, Trash2, ShieldCheck, Clock, Activity, Edit3 } from "lucide-react";
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -19,7 +19,7 @@ export default function TeamsPage() {
   const fetchTeams = () => {
     setLoading(true);
     api.get<PaginatedResponse<Team>>("/teams?per_page=100")
-      .then((res) => setTeams(res.data))
+      .then((res) => setTeams(res.data || []))
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -34,7 +34,7 @@ export default function TeamsPage() {
     try {
       await api.delete(`/teams/${id}`);
       setTeams((prev) => prev.filter((t) => t.id !== id));
-      setToast("Team deleted.");
+      setToast("Team deleted successfully.");
       setTimeout(() => setToast(null), 3000);
     } catch {
       setToast("Failed to delete team.");
@@ -60,127 +60,151 @@ export default function TeamsPage() {
   };
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6 bg-canvas min-h-full text-fg-primary font-sans space-y-6">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Users className="h-5 w-5 text-amber" />
-          <div>
-            <h1 className="text-sm font-bold uppercase tracking-wider">Engineering Teams</h1>
-            <p className="mt-0.5 text-[10px] text-fg-muted">
-              {teams.length} {teams.length === 1 ? "team" : "teams"} total
-            </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-amber" />
+            <h1 className="text-sm font-extrabold uppercase tracking-widest text-fg-primary">
+              Engineering Teams & On-Call Shift Hub
+            </h1>
           </div>
+          <p className="mt-1 text-xs text-fg-muted">
+            Escalation policies, active primary/secondary on-call responders, and engineer fatigue analytics.
+          </p>
         </div>
+
         <button
           onClick={() => setCreateModalOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded bg-amber px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-fg transition-colors hover:bg-amber-hover"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-amber hover:bg-amber-500/20 transition-all shadow-[0_0_12px_rgba(245,158,11,0.15)]"
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3.5 w-3.5" />
           Create Team
         </button>
       </div>
 
       {/* Teams Grid */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-amber" />
+        <div className="flex items-center justify-center py-16">
+          <div className="flex items-center gap-3 text-healthy font-mono text-xs">
+            <Activity className="h-5 w-5 animate-spin text-amber" />
+            <span>FETCHING TEAM ROTATIONS...</span>
+          </div>
         </div>
       ) : teams.length === 0 ? (
-        <div className="rounded border border-border bg-surface py-12 text-center">
-          <Users className="mx-auto mb-2 h-8 w-8 text-fg-muted/30" />
-          <p className="text-[11px] text-fg-muted">No teams created yet</p>
+        <div className="rounded-xl border border-border bg-surface/40 p-12 text-center">
+          <Users className="mx-auto mb-3 h-10 w-10 text-fg-muted" />
+          <p className="text-xs font-mono text-fg-muted">NO ENGINEERING TEAMS CONFIGURED</p>
           <button
             onClick={() => setCreateModalOpen(true)}
-            className="mt-3 text-[10px] text-amber hover:underline"
+            className="mt-4 text-xs font-bold text-amber hover:underline"
           >
-            Create your first team
+            + Create initial team
           </button>
         </div>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {teams.map((team) => (
             <div
               key={team.id}
-              className="rounded border border-border bg-surface transition-colors hover:border-amber/20"
+              className="rounded-xl border border-border bg-surface/60 p-5 shadow-xl transition-all hover:border-amber/40 flex flex-col justify-between space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded bg-amber/10">
-                    <Users className="h-4 w-4 text-amber" />
+              <div>
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <Users className="h-4 w-4 text-amber" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-fg-primary">{team.name}</h3>
+                      <span className="rounded bg-canvas px-1.5 py-0.5 font-mono text-[9px] text-amber border border-border">
+                        #{team.slug}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-fg-primary">{team.name}</h3>
-                    <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[8px] text-fg-muted">
-                      #{team.slug}
-                    </span>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditTeam(team)}
+                      className="rounded-md p-1.5 text-fg-muted hover:bg-hover-row hover:text-amber transition-colors"
+                      title="Edit team"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                    </button>
+                    {confirmDeleteId === team.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="rounded border border-border px-1.5 py-0.5 text-[9px] text-fg-muted hover:bg-hover-row"
+                        >
+                          No
+                        </button>
+                        <button
+                          onClick={() => handleDelete(team.id)}
+                          disabled={deleting}
+                          className="rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-[9px] text-critical hover:bg-rose-500/20"
+                        >
+                          {deleting ? "..." : "Yes"}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(team.id)}
+                        className="rounded-md p-1.5 text-fg-muted hover:bg-hover-row hover:text-critical transition-colors"
+                        title="Delete team"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setEditTeam(team)}
-                    className="rounded p-1.5 text-fg-muted transition-colors hover:bg-hover-row hover:text-amber"
-                    title="Edit team"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  {confirmDeleteId === team.id ? (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="rounded border border-border px-1.5 py-0.5 text-[8px] text-fg-muted hover:bg-hover-row"
-                      >
-                        No
-                      </button>
-                      <button
-                        onClick={() => handleDelete(team.id)}
-                        disabled={deleting}
-                        className="rounded border border-critical/30 bg-critical/10 px-1.5 py-0.5 text-[8px] text-critical hover:bg-critical/20"
-                      >
-                        {deleting ? "..." : "Yes"}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDeleteId(team.id)}
-                      className="rounded p-1.5 text-fg-muted transition-colors hover:bg-hover-row hover:text-critical"
-                      title="Delete team"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+
+                {team.description && (
+                  <p className="mt-3 text-xs text-fg-muted leading-relaxed">{team.description}</p>
+                )}
+
+                {/* On-call Rotation HUD */}
+                <div className="mt-4 rounded-lg border border-border bg-canvas p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-fg-muted">
+                    <span className="flex items-center gap-1 text-healthy">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      PRIMARY ON-CALL
+                    </span>
+                    <span>12h SHIFT REMAINING</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-fg-primary">
+                      {team.users && team.users[0] ? team.users[0].name : "Primary Responder"}
+                    </span>
+                    <span className="text-[9px] font-mono text-fg-muted">SLA: 5m ACK</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="px-4 py-3">
-                {team.description && (
-                  <p className="mb-2 text-[10px] text-fg-muted">{team.description}</p>
+              {/* Members roster footer */}
+              <div className="pt-3 border-t border-border/80 flex items-center justify-between">
+                <span className="text-xs text-fg-muted">
+                  {team.users?.length ?? 0} {(team.users?.length ?? 0) === 1 ? "engineer" : "engineers"}
+                </span>
+                {team.users && team.users.length > 0 && (
+                  <div className="flex -space-x-1.5">
+                    {team.users.slice(0, 5).map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-amber/20 text-[9px] font-bold text-amber"
+                        title={m.name}
+                      >
+                        {m.name.charAt(0)}
+                      </div>
+                    ))}
+                    {team.users.length > 5 && (
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-elevated text-[9px] text-fg-muted">
+                        +{team.users.length - 5}
+                      </div>
+                    )}
+                  </div>
                 )}
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-fg-muted">
-                    {team.users?.length ?? 0} {(team.users?.length ?? 0) === 1 ? "member" : "members"}
-                  </span>
-                  {team.users && team.users.length > 0 && (
-                    <div className="flex -space-x-1.5">
-                      {team.users.slice(0, 5).map((m) => (
-                        <div
-                          key={m.id}
-                          className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-amber/20 text-[8px] font-bold text-amber"
-                          title={m.name}
-                        >
-                          {m.name.charAt(0)}
-                        </div>
-                      ))}
-                      {team.users.length > 5 && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-elevated text-[8px] text-fg-muted">
-                          +{team.users.length - 5}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           ))}
@@ -202,9 +226,9 @@ export default function TeamsPage() {
         />
       )}
 
-      {/* Toast */}
+      {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 rounded border border-healthy/30 bg-surface px-4 py-2 text-[11px] text-healthy shadow-lg shadow-black/20">
+        <div className="fixed bottom-5 right-5 z-50 rounded-lg border border-emerald-500/40 bg-surface/90 px-4 py-2.5 text-xs font-bold text-healthy shadow-2xl backdrop-blur-md">
           {toast}
         </div>
       )}

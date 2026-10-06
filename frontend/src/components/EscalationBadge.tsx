@@ -10,10 +10,14 @@ const levelColors: Record<EscalationLevel, { bg: string; text: string; border: s
   level_3: { bg: "bg-critical/10", text: "text-critical", border: "border-critical/30" },
 };
 
-export function EscalationBadge({ level, createdAt }: { level: EscalationLevel; createdAt: string }) {
+export function EscalationBadge({ level, createdAt, status }: { level: EscalationLevel; createdAt: string; status?: string }) {
   const [currentLevel, setCurrentLevel] = useState(level);
 
   useEffect(() => {
+    if (status === "resolved") {
+      setCurrentLevel("level_1");
+      return;
+    }
     const interval = setInterval(() => {
       const elapsed = Date.now() - new Date(createdAt).getTime();
       const minutes = elapsed / 60000;
@@ -22,7 +26,15 @@ export function EscalationBadge({ level, createdAt }: { level: EscalationLevel; 
       else setCurrentLevel("level_1");
     }, 30000);
     return () => clearInterval(interval);
-  }, [createdAt]);
+  }, [createdAt, status]);
+
+  if (status === "resolved") {
+    return (
+      <span className="inline-flex items-center rounded border border-healthy/30 bg-healthy/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-healthy">
+        Resolved
+      </span>
+    );
+  }
 
   const c = levelColors[currentLevel];
   return (
