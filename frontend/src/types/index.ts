@@ -109,6 +109,18 @@ export interface TelemetryLog {
   created_at: string;
 }
 
+export interface AppNotification {
+  id: number;
+  incident_id: number;
+  incident_number: string;
+  type: string;
+  body: string | null;
+  data: Record<string, unknown> | null;
+  actor: string | null;
+  read_at: string | null;
+  created_at: string | null;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   links: { first: string | null; last: string | null; prev: string | null; next: string | null };

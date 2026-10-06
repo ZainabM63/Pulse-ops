@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { StatusStepper } from "@/components/incidents/StatusStepper";
@@ -33,6 +33,25 @@ export default function IncidentDetailPage() {
   useEffect(() => {
     fetchIncident();
   }, [params.id]);
+
+  const fetchIncidentRef = useRef(fetchIncident);
+  useEffect(() => {
+    fetchIncidentRef.current = fetchIncident;
+  }, [fetchIncident]);
+
+  useEffect(() => {
+    const poll = () => fetchIncidentRef.current();
+    const interval = setInterval(poll, 20000);
+    const onFocus = () => poll();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) poll();
+    });
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   const handleDelete = async () => {
     if (deleting) return;

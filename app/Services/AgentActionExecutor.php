@@ -11,6 +11,12 @@ use Illuminate\Support\Facades\Log;
 
 class AgentActionExecutor
 {
+    public function __construct(private ?IncidentNotifier $notifier = null) {}
+
+    private function notifier(): IncidentNotifier
+    {
+        return $this->notifier ??= app(IncidentNotifier::class);
+    }
     public function execute(AgentAction $action, int $userId): array
     {
         $action->update(['status' => 'running', 'executed_at' => now()]);
@@ -256,6 +262,12 @@ class AgentActionExecutor
             'metadata' => ['old' => $oldStatus, 'new' => 'resolved'],
         ]);
 
+        $this->notifier()->notify($incident, [
+            'type' => 'status_change',
+            'body' => 'Status changed to Resolved',
+            'data' => ['old' => $oldStatus, 'new' => 'resolved'],
+        ], $userId);
+
         \App\Events\IncidentUpdated::dispatch($incident->fresh());
 
         return [
@@ -277,5 +289,11 @@ class AgentActionExecutor
             'body' => $body,
             'metadata' => $metadata,
         ]);
+
+        $this->notifier()->notify($incident, [
+            'type' => 'agent_action',
+            'body' => $body,
+            'data' => $metadata,
+        ], $userId);
     }
 }

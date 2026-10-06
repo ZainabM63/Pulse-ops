@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { IncidentRow } from "@/components/IncidentRow";
@@ -32,8 +32,8 @@ export default function IncidentsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const fetchIncidents = (p: number) => {
-    setLoading(true);
+  const fetchIncidents = (p: number, silent = false) => {
+    if (!silent) setLoading(true);
     api.get<PaginatedResponse<Incident>>(`/incidents?page=${p}&per_page=15`)
       .then((res) => {
         setIncidents(res.data);
@@ -41,7 +41,9 @@ export default function IncidentsPage() {
         setTotal(res.meta.total);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   };
 
   const fetchAll = () => {
@@ -55,6 +57,33 @@ export default function IncidentsPage() {
     fetchAll();
     refresh();
   };
+
+  const pageRef = useRef(page);
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  const fetchRef = useRef({ fetchIncidents, fetchAll });
+  useEffect(() => {
+    fetchRef.current = { fetchIncidents, fetchAll };
+  });
+
+  useEffect(() => {
+    const poll = () => {
+      fetchRef.current.fetchIncidents(pageRef.current, true);
+      fetchRef.current.fetchAll();
+    };
+    const interval = setInterval(poll, 20000);
+    const onFocus = () => poll();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) poll();
+    });
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   useEffect(() => {
     fetchIncidents(page);

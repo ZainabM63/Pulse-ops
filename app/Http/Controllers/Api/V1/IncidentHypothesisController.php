@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Incident;
 use App\Models\IncidentHypothesis;
+use App\Services\IncidentNotifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class IncidentHypothesisController extends Controller
 {
+    public function __construct(private IncidentNotifier $notifier) {}
     public function index(Request $request, Incident $incident): JsonResponse
     {
         $hypotheses = $incident->hypotheses()
@@ -42,6 +44,12 @@ class IncidentHypothesisController extends Controller
             'owner' => $validated['owner'] ?? $user->name,
         ]);
 
+        $this->notifier->notify($incident, [
+            'type' => 'hypothesis',
+            'body' => "New root cause hypothesis: {$hypothesis->title}",
+            'data' => ['hypothesis_id' => $hypothesis->id],
+        ], $user->id);
+
         return response()->json(['data' => $hypothesis->load('user:id,name')], 201);
     }
 
@@ -55,7 +63,16 @@ class IncidentHypothesisController extends Controller
             'owner' => 'sometimes|string|max:255',
         ]);
 
+        $oldStatus = $hypothesis->status;
         $hypothesis->update($validated);
+
+        if ($request->filled('status') && $validated['status'] !== $oldStatus) {
+            $this->notifier->notify($incident, [
+                'type' => 'hypothesis',
+                'body' => "Hypothesis \"{$hypothesis->title}\" is now {$hypothesis->status}",
+                'data' => ['hypothesis_id' => $hypothesis->id, 'old' => $oldStatus, 'new' => $validated['status']],
+            ], $request->user()?->id);
+        }
 
         return response()->json(['data' => $hypothesis->fresh('user:id,name')]);
     }

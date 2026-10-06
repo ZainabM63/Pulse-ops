@@ -11,6 +11,8 @@ import { VoiceNotePlayer } from "@/components/warroom/VoiceNotePlayer";
 import { AgentPanel } from "@/components/agent/AgentPanel";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useVoiceOutput } from "@/hooks/useVoiceOutput";
+import { useAuth } from "@/hooks/useAuth";
+import { useRealtimeIncident } from "@/hooks/useRealtimeIncident";
 import {
   ArrowLeft, AlertTriangle, Users, Clock, Terminal, Zap,
   Volume2, VolumeX, Send, Mic, MicOff, AudioLines, Lightbulb,
@@ -106,6 +108,8 @@ export default function WarRoomPage() {
     onResult: (text) => setChatInput((prev) => prev ? `${prev} ${text}` : text),
   });
   const voiceOutput = useVoiceOutput();
+  const { user: me } = useAuth();
+  const incidentId = incident?.id;
   const speakRef = useRef<(text: string) => void>(() => {});
   const announcedRef = useRef<Set<number>>(new Set());
 
@@ -184,17 +188,46 @@ export default function WarRoomPage() {
   }, [params.id, fetchIncident, fetchHypotheses, fetchLogs]);
 
   useEffect(() => {
-    if (incident) {
-      fetchChat(incident.id, false);
-      pollRef.current = setInterval(() => {
-        fetchChat(incident.id, true);
-        fetchLogs(String(incident.id));
-      }, 4000);
-      return () => {
-        if (pollRef.current) clearInterval(pollRef.current);
-      };
-    }
-  }, [incident, fetchChat, fetchLogs]);
+    if (!incidentId) return;
+    fetchChat(incidentId, false);
+    pollRef.current = setInterval(() => {
+      fetchChat(incidentId, true);
+      fetchLogs(String(incidentId));
+    }, 4000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [incidentId, fetchChat, fetchLogs]);
+
+  useEffect(() => {
+    if (!incidentId) return;
+    const idStr = String(incidentId);
+    const interval = setInterval(() => fetchIncident(idStr), 10000);
+    return () => clearInterval(interval);
+  }, [incidentId, fetchIncident]);
+
+  useRealtimeIncident(
+    me?.company?.id,
+    useCallback(
+      (event) => {
+        if (incidentId && event.type === "incident.updated") {
+          const updatedId = (event.data as { id?: number })?.id;
+          if (updatedId === incidentId) fetchIncident(String(updatedId));
+        }
+        if (event.type === "chat.message") {
+          const msg = activityToMessage(event.data as unknown as ApiActivity);
+          if (!msg) return;
+          const actorId = (event.data?.user as { id?: number } | null)?.id;
+          if (typeof actorId === "number" && me?.id === actorId) return;
+          if (msg.id <= lastActivityIdRef.current) return;
+          lastActivityIdRef.current = msg.id;
+          setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+          if (msg.type === "system") announce(msg.message);
+        }
+      },
+      [incidentId, me?.id, announce, fetchIncident]
+    )
+  );
 
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
@@ -234,10 +267,15 @@ export default function WarRoomPage() {
         reader.onload = async () => {
           const dataUrl = String(reader.result);
           try {
-            await api.post(`/incidents/${incident.id}/chat`, {
+            const res = await api.post<{ message: ApiActivity }>(`/incidents/${incident.id}/chat`, {
               body: "Voice note",
               metadata: { audio_base64: dataUrl },
             });
+            if (res.message) {
+              lastActivityIdRef.current = Math.max(lastActivityIdRef.current, res.message.id);
+              const msg = activityToMessage(res.message);
+              if (msg) setMessages((prev) => [...prev, msg]);
+            }
             await fetchChat(incident.id, true);
           } catch {
             addMessage("System", "Failed to send voice note.", "system");
@@ -545,6 +583,12 @@ export default function WarRoomPage() {
                           <span className="text-fg-muted shrink-0">[{msg.timestamp}]</span>
                           <span className="font-bold text-amber shrink-0">&gt; {msg.user}:</span>
                           <span className="text-emerald-300 font-semibold">{msg.message}</span>
+                        </div>
+                      ) : msg.type === "voice" ? (
+                        <div className="flex gap-2 items-start bg-surface/30 p-2 rounded border border-border">
+                          <span className="text-fg-muted shrink-0">[{msg.timestamp}]</span>
+                          <span className="font-bold text-healthy shrink-0">{msg.user}:</span>
+                          <VoiceNotePlayer user={msg.user} audioUrl={msg.audioUrl ?? ""} timestamp={msg.timestamp} />
                         </div>
                       ) : (
                         <div className="flex gap-2 items-start bg-surface/30 p-2 rounded border border-border">

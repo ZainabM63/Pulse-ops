@@ -10,12 +10,14 @@ use App\Http\Requests\UpdateIncidentRequest;
 use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
 use App\Models\IncidentActivity;
+use App\Services\IncidentNotifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class IncidentController extends Controller
 {
+    public function __construct(private IncidentNotifier $notifier) {}
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = Incident::with(['reporter', 'assignee', 'team', 'services'])
@@ -72,6 +74,11 @@ class IncidentController extends Controller
             'body' => 'Incident declared.',
         ]);
 
+        $this->notifier->notify($incident, [
+            'type' => 'comment',
+            'body' => 'Incident declared.',
+        ], $request->user()->id);
+
         return response()->json([
             'message' => 'Incident created',
             'incident' => new IncidentResource($incident->load(['reporter', 'services'])),
@@ -97,6 +104,12 @@ class IncidentController extends Controller
                 'metadata' => ['old' => $old['status'], 'new' => $request->status],
             ]);
 
+            $this->notifier->notify($incident, [
+                'type' => 'status_change',
+                'body' => 'Status changed to '.ucfirst($request->status),
+                'data' => ['old' => $old['status'], 'new' => $request->status],
+            ], $request->user()->id);
+
             if ($request->status === 'resolved') {
                 $incident->update(['resolved_at' => now()]);
             }
@@ -110,6 +123,12 @@ class IncidentController extends Controller
                 'body' => "Severity changed to {$request->severity}",
                 'metadata' => ['old' => $old['severity'], 'new' => $request->severity],
             ]);
+
+            $this->notifier->notify($incident, [
+                'type' => 'severity_change',
+                'body' => "Severity changed to {$request->severity}",
+                'data' => ['old' => $old['severity'], 'new' => $request->severity],
+            ], $request->user()->id);
         }
 
         if ($request->filled('assignee_id') && $request->assignee_id !== $old['assignee_id']) {
@@ -121,6 +140,12 @@ class IncidentController extends Controller
                 'body' => "Assigned to {$assigneeName}",
                 'metadata' => ['old' => $old['assignee_id'], 'new' => $request->assignee_id],
             ]);
+
+            $this->notifier->notify($incident, [
+                'type' => 'assignment',
+                'body' => "Assigned to {$assigneeName}",
+                'data' => ['old' => $old['assignee_id'], 'new' => $request->assignee_id],
+            ], $request->user()->id);
         }
 
         if ($request->filled('comment')) {
@@ -130,6 +155,11 @@ class IncidentController extends Controller
                 'type' => 'comment',
                 'body' => $request->comment,
             ]);
+
+            $this->notifier->notify($incident, [
+                'type' => 'comment',
+                'body' => $request->comment,
+            ], $request->user()->id);
         }
 
         IncidentUpdated::dispatch($incident);
@@ -163,6 +193,13 @@ class IncidentController extends Controller
         ]);
 
         ChatMessageBroadcast::dispatch($activity);
+
+        $isVoice = isset($validated['metadata']['audio_base64']);
+        $this->notifier->notify($incident, [
+            'type' => $isVoice ? 'voice_note' : 'chat',
+            'body' => $isVoice ? 'Sent a voice note' : $validated['body'],
+            'data' => ['activity_id' => $activity->id],
+        ], $request->user()->id);
 
         return response()->json([
             'message' => new \App\Http\Resources\IncidentActivityResource($activity->load('user')),
@@ -208,6 +245,12 @@ class IncidentController extends Controller
         ]);
 
         ChatMessageBroadcast::dispatch($activity);
+
+        $this->notifier->notify($incident, [
+            'type' => $validated['type'],
+            'body' => $validated['body'],
+            'data' => $validated['metadata'] ?? null,
+        ], $request->user()->id);
 
         return response()->json([
             'message' => new \App\Http\Resources\IncidentActivityResource($activity->load('user')),

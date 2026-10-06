@@ -56,4 +56,23 @@ class Incident extends Model
     {
         return $this->hasMany(TelemetryLog::class);
     }
+
+    /**
+     * Users who should be notified about this incident:
+     * the assignee, the reporter, and every member of the linked team.
+     */
+    public function involvedUserIds(?int $except = null): array
+    {
+        $ids = collect()
+            ->push($this->assignee_id)
+            ->push($this->reporter_id)
+            ->push($this->team?->users?->pluck('id')->all())
+            ->flatten()
+            ->filter(fn ($id) => $id !== null && (int) $id !== (int) $except)
+            ->unique()
+            ->values()
+            ->all();
+
+        return $ids;
+    }
 }

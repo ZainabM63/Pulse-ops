@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useTheme } from "next-themes";
+import NotificationsBell from "@/components/NotificationsBell";
 import { ChevronDown, LogOut, Sun, Moon, Monitor, Zap, Clock, Users, Menu, X } from "lucide-react";
 import type { Environment } from "@/types";
 
@@ -146,6 +147,9 @@ export default function Shell({ menuOpen, onMenuToggle }: { menuOpen?: boolean; 
       </div>
 
       <div className="flex-1" />
+
+      {/* Notifications */}
+      <NotificationsBell />
 
       {/* Theme Switcher */}
       <button

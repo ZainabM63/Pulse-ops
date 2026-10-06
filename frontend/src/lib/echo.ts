@@ -1,7 +1,10 @@
 import Echo from "laravel-echo";
 import Pusher from "pusher-js";
+import { getToken } from "@/lib/api";
 
 let echoInstance: Echo<"pusher"> | null = null;
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api/v1").replace(/\/api\/v1\/?$/, "");
 
 export function getEcho(): Echo<"pusher"> {
   if (echoInstance) return echoInstance;
@@ -21,6 +24,7 @@ export function getEcho(): Echo<"pusher"> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).Pusher = Pusher;
+  const token = getToken();
 
   echoInstance = new Echo({
     broadcaster: "pusher",
@@ -31,6 +35,13 @@ export function getEcho(): Echo<"pusher"> {
     forceTLS: wsScheme === "https",
     enabledTransports: ["ws", "wss"],
     disableStats: true,
+    authEndpoint: `${API_BASE}/broadcasting/auth`,
+    auth: {
+      headers: {
+        Authorization: `Bearer ${token ?? ""}`,
+        Accept: "application/json",
+      },
+    },
   });
 
   return echoInstance;
