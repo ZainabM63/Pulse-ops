@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AgentRunResource;
 use App\Models\AgentAction;
 use App\Models\AgentRun;
 use App\Models\Incident;
@@ -12,6 +13,7 @@ use App\Services\MockAgentBrain;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Collection;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AgentController extends Controller
@@ -29,20 +31,22 @@ class AgentController extends Controller
     ];
 
     protected AgentBrain $brain;
+
     protected AgentActionExecutor $executor;
+
     protected bool $geminiLoop = false;
 
     public function __construct(?AgentBrain $brain = null, ?AgentActionExecutor $executor = null)
     {
         $this->brain = $brain ?: (config('services.gemini.key')
-            ? new AgentBrain()
-            : new MockAgentBrain());
-        $this->executor = $executor ?: new AgentActionExecutor();
+            ? new AgentBrain
+            : new MockAgentBrain);
+        $this->executor = $executor ?: new AgentActionExecutor;
         // Only the real Gemini brain supports the observe → re-decide loop.
         // The keyword (mock) brain is deterministic and must keep its
         // single-round behaviour.
         $this->geminiLoop = ($this->brain instanceof AgentBrain)
-            && !($this->brain instanceof MockAgentBrain);
+            && ! ($this->brain instanceof MockAgentBrain);
     }
 
     public function index(Request $request): AnonymousResourceCollection
@@ -59,16 +63,32 @@ class AgentController extends Controller
             $query->where('status', $request->status);
         }
 
-        return \App\Http\Resources\AgentRunResource::collection(
+        return AgentRunResource::collection(
             $query->paginate($request->integer('per_page', 25))
         );
     }
 
-    public function show(Request $request, AgentRun $run): \App\Http\Resources\AgentRunResource
+    /**
+     * Report which brain is active and the Gemini config in use. Lets the
+     * deployed environment be diagnosed remotely in one request.
+     */
+    public function health(Request $request): JsonResponse
+    {
+        return response()->json([
+            'brain' => $this->geminiLoop ? 'gemini' : 'keyword',
+            'loop_enabled' => $this->geminiLoop,
+            'gemini_key_set' => (bool) config('services.gemini.key'),
+            'gemini_model' => config('services.gemini.model', 'gemini-2.0-flash'),
+            'broadcast_driver' => config('broadcasting.default'),
+        ]);
+    }
+
+    public function show(Request $request, AgentRun $run): AgentRunResource
     {
         $this->authorizeRun($request, $run);
         $run->load(['user', 'actions', 'incident']);
-        return new \App\Http\Resources\AgentRunResource($run);
+
+        return new AgentRunResource($run);
     }
 
     public function store(Request $request): JsonResponse
@@ -116,7 +136,7 @@ class AgentController extends Controller
         }
 
         return response()->json([
-            'run' => new \App\Http\Resources\AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
+            'run' => new AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
         ], 201);
     }
 
@@ -125,7 +145,7 @@ class AgentController extends Controller
         $this->authorizeRun($request, $run);
 
         if (in_array($run->status, ['cancelled', 'completed', 'failed'])) {
-            return response()->json(['message' => 'Cannot chat on a ' . $run->status . ' run'], 422);
+            return response()->json(['message' => 'Cannot chat on a '.$run->status.' run'], 422);
         }
 
         $validated = $request->validate([
@@ -150,7 +170,7 @@ class AgentController extends Controller
         $run->load(['actions', 'user', 'incident']);
 
         return response()->json([
-            'run' => new \App\Http\Resources\AgentRunResource($run),
+            'run' => new AgentRunResource($run),
         ]);
     }
 
@@ -158,7 +178,7 @@ class AgentController extends Controller
     {
         $this->authorizeRun($request, $run);
 
-        if (!in_array($run->status, ['pending', 'running'])) {
+        if (! in_array($run->status, ['pending', 'running'])) {
             return response()->json(['message' => 'Run is not in an executable state'], 422);
         }
 
@@ -167,7 +187,7 @@ class AgentController extends Controller
         $this->finalizeRun($run, $run->title, $results);
 
         return response()->json([
-            'run' => new \App\Http\Resources\AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
+            'run' => new AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
             'summary' => $run->metadata['summary'] ?? null,
         ]);
     }
@@ -185,7 +205,7 @@ class AgentController extends Controller
 
         return response()->json([
             'message' => 'Agent run cancelled',
-            'run' => new \App\Http\Resources\AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
+            'run' => new AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
         ]);
     }
 
@@ -196,7 +216,7 @@ class AgentController extends Controller
         }
     }
 
-    protected function executeAll(AgentRun $run, int $userId, ?\Illuminate\Support\Collection $actions = null): array
+    protected function executeAll(AgentRun $run, int $userId, ?Collection $actions = null): array
     {
         $results = [];
         $pendingActions = $actions ?? $run->actions()->where('status', 'pending')->orderBy('id')->get();
@@ -226,6 +246,7 @@ class AgentController extends Controller
         $results = [];
         $history = [];
         $round = 0;
+        $loopEngaged = false;
 
         while ($round < $maxRounds) {
             $round++;
@@ -233,16 +254,33 @@ class AgentController extends Controller
             if ($round === 1) {
                 // Execute whatever the initial plan already scheduled.
             } elseif ($this->geminiLoop) {
+                $loopEngaged = true;
+
                 $toolCalls = $this->brain->decide(
                     $this->buildContinueMessage($message, $history),
-                    $this->buildIncidentContext($run->incident)
+                    $this->buildIncidentContext($run->incident),
+                    false
                 );
 
                 if (empty($toolCalls)) {
                     break;
                 }
 
+                // Never re-schedule a tool that is already completed/running —
+                // otherwise a confused model (or a degraded API) would re-run
+                // the same action on every round.
+                $existingKeys = $run->actions()
+                    ->whereNotIn('status', ['skipped', 'cancelled'])
+                    ->get()
+                    ->map(fn ($a) => $a->type.':'.json_encode($a->input))
+                    ->all();
+
+                $created = false;
                 foreach ($toolCalls as $call) {
+                    $key = $call['type'].':'.json_encode($call['input'] ?? null);
+                    if (in_array($key, $existingKeys, true)) {
+                        continue;
+                    }
                     AgentAction::create([
                         'agent_run_id' => $run->id,
                         'type' => $call['type'],
@@ -250,6 +288,14 @@ class AgentController extends Controller
                         'status' => 'pending',
                         'input' => $call['input'] ?? null,
                     ]);
+                    $existingKeys[] = $key;
+                    $created = true;
+                }
+
+                // The model only proposed repeats of already-executed tools —
+                // stop instead of spinning.
+                if (! $created) {
+                    break;
                 }
             } else {
                 break;
@@ -270,6 +316,12 @@ class AgentController extends Controller
             }
 
             $run->update(['status' => 'running', 'metadata' => array_merge($run->metadata ?? [], ['round' => $round])]);
+        }
+
+        if ($loopEngaged) {
+            $run->update([
+                'metadata' => array_merge($run->metadata ?? [], ['loop_engaged' => true]),
+            ]);
         }
 
         return $results;
@@ -296,7 +348,7 @@ class AgentController extends Controller
      */
     protected function buildIncidentContext(?Incident $incident): array
     {
-        if (!$incident) {
+        if (! $incident) {
             return [];
         }
 

@@ -16,14 +16,14 @@ use App\Services\AgentBrain;
 class AgentChatLoopTestBrain extends AgentBrain
 {
     public int $decideCalls = 0;
+
     public array $contexts = [];
+
     public array $messages = [];
 
-    public function __construct(private array $script)
-    {
-    }
+    public function __construct(private array $script) {}
 
-    public function decide(string $userMessage, array $incidentContext): array
+    public function decide(string $userMessage, array $incidentContext, bool $allowFallback = true): array
     {
         $this->decideCalls++;
         $this->contexts[] = $incidentContext;
@@ -145,6 +145,56 @@ class AgentChatLoopTest extends AgentTestCase
         // Exactly the single keyword batch; nothing re-decided or duplicated.
         $this->assertCount(1, $run['actions']);
         $this->assertSame('restart_service', $run['actions'][0]['type']);
+    }
+
+    public function test_loop_skips_repeat_actions_and_stops_when_only_duplicates_proposed(): void
+    {
+        $company = $this->makeCompany();
+        $user = $this->actingAsUser($this->makeUser($company));
+        $service = $this->makeService($company, ['name' => 'api-gateway']);
+        $incident = $this->makeIncident($company, [], $service, $user);
+
+        // Round 2 proposes the exact same action again; the dedup guard must
+        // skip it and stop instead of looping forever.
+        $brain = $this->installBrain(new AgentChatLoopTestBrain([
+            [['type' => 'run_diagnostics', 'input' => []]],
+            [['type' => 'run_diagnostics', 'input' => []]],
+        ]));
+
+        $response = $this->postJson('/api/v1/agent/runs', [
+            'incident_id' => $incident->id,
+            'message' => 'investigate the incident',
+            'mode' => 'autonomous',
+        ]);
+
+        $response->assertStatus(201);
+        $run = $response->json('run');
+
+        $this->assertSame('completed', $run['status']);
+        $this->assertCount(1, $run['actions']);
+        $this->assertSame('run_diagnostics', $run['actions'][0]['type']);
+        $this->assertSame(2, $brain->decideCalls);
+    }
+
+    public function test_agent_health_reports_keyword_brain_without_key(): void
+    {
+        config(['services.gemini.key' => null]);
+
+        $company = $this->makeCompany();
+        $this->actingAsUser($this->makeUser($company));
+
+        $this->getJson('/api/v1/agent/health')
+            ->assertOk()
+            ->assertJson([
+                'brain' => 'keyword',
+                'loop_enabled' => false,
+                'gemini_key_set' => false,
+            ]);
+    }
+
+    public function test_agent_health_requires_authentication(): void
+    {
+        $this->getJson('/api/v1/agent/health')->assertUnauthorized();
     }
 
     public function test_gemini_receives_rich_context_with_telemetry_hypotheses_and_activity(): void

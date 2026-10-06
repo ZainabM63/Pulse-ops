@@ -46,6 +46,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('teams', TeamController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
         Route::middleware('throttle:30,1')->group(function () {
+            Route::get('/agent/health', [AgentController::class, 'health']);
             Route::get('/agent/runs', [AgentController::class, 'index']);
             Route::post('/agent/runs', [AgentController::class, 'store']);
             Route::get('/agent/runs/{run}', [AgentController::class, 'show']);

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 class AgentBrain
 {
     protected string $apiKey;
+
     protected string $model;
 
     public function __construct()
@@ -16,7 +17,7 @@ class AgentBrain
         $this->model = config('services.gemini.model', 'gemini-2.0-flash');
     }
 
-    public function decide(string $userMessage, array $incidentContext): array
+    public function decide(string $userMessage, array $incidentContext, bool $allowFallback = true): array
     {
         $systemPrompt = $this->buildSystemPrompt();
         $contextJson = json_encode($incidentContext, JSON_PRETTY_PRINT);
@@ -25,7 +26,7 @@ class AgentBrain
         $prompt = "{$systemPrompt}\n\nIncident Context:\n{$contextJson}\n\nUser Request: {$userMessage}\n\nRespond with a JSON array of tool calls to execute. Each object should have \"type\" (tool name) and \"input\" (parameters object). If no tools needed, return empty array.";
 
         try {
-            $response = Http::withHeaders([
+            $response = Http::withOptions(['verify' => $this->tlsVerifyOption()])->withHeaders([
                 'Content-Type' => 'application/json',
             ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
                 'contents' => [
@@ -40,7 +41,8 @@ class AgentBrain
 
             if ($response->failed()) {
                 Log::error('Gemini API error', ['status' => $response->status(), 'body' => $response->body()]);
-                return $this->fallbackDecide($userMessage, $incidentContext);
+
+                return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'http_'.$response->status()]);
             }
 
             $body = $response->json();
@@ -64,15 +66,57 @@ class AgentBrain
                 }
             }
 
-            if (!empty($toolCalls)) {
+            if (! empty($toolCalls)) {
                 return $toolCalls;
             }
 
-            return $this->fallbackDecide($userMessage, $incidentContext);
+            return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'no_tool_calls_parsed']);
         } catch (\Exception $e) {
             Log::error('AgentBrain error', ['message' => $e->getMessage()]);
-            return $this->fallbackDecide($userMessage, $incidentContext);
+
+            return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'exception', 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Whether a failed Gemini call may fall through to the deterministic
+     * keyword brain. Continuation rounds must NOT fall back — a fallback there
+     * would re-trigger tools already executed and spin the loop forever.
+     * Instead the caller should treat an empty result as "loop is done".
+     */
+    protected function decideFallback(string $userMessage, array $incidentContext, bool $allowFallback, array $context): array
+    {
+        Log::warning('AgentBrain fell back to keyword matching', $context);
+
+        if (! $allowFallback) {
+            return [];
+        }
+
+        return $this->fallbackDecide($userMessage, $incidentContext);
+    }
+
+    /**
+     * Resolve an HTTPS CA bundle for outgoing HTTP requests.
+     *
+     * Windows PHP ships without a system CA bundle, so every HTTPS request
+     * fails with cURL error 60 unless we point cURL at a CA file. Prefer the
+     * php.ini settings, then the Composer CA bundle; only fall back to
+     * disabling verification for Gemini when neither is available AND we are
+     * on Windows (Linux/macOS keep the strict default).
+     */
+    protected function tlsVerifyOption(): string|bool
+    {
+        $cainfo = ini_get('curl.cainfo') ?: ini_get('openssl.cafile');
+        if ($cainfo && is_file($cainfo)) {
+            return $cainfo;
+        }
+
+        $composerCa = base_path('vendor/composer/ca-bundle/res/cacert.pem');
+        if (is_file($composerCa)) {
+            return $composerCa;
+        }
+
+        return PHP_OS_FAMILY !== 'Windows';
     }
 
     public function summarize(string $userMessage, array $toolResults): string
@@ -81,7 +125,7 @@ class AgentBrain
         $prompt = "You are PulseOps Agent. The user asked: \"{$userMessage}\"\n\nYou executed these actions and got these results:\n{$resultsJson}\n\nWrite a brief, professional summary of what was done and any recommendations. Keep it under 3 sentences.";
 
         try {
-            $response = Http::withHeaders([
+            $response = Http::withOptions(['verify' => $this->tlsVerifyOption()])->withHeaders([
                 'Content-Type' => 'application/json',
             ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
                 'contents' => [
@@ -94,12 +138,17 @@ class AgentBrain
             ]);
 
             if ($response->failed()) {
+                Log::warning('AgentBrain summary fell back to fallback text', ['reason' => 'http_'.$response->status()]);
+
                 return $this->fallbackSummarize($toolResults);
             }
 
             $body = $response->json();
+
             return $body['candidates'][0]['content']['parts'][0]['text'] ?? $this->fallbackSummarize($toolResults);
         } catch (\Exception $e) {
+            Log::warning('AgentBrain summary fell back to fallback text', ['reason' => 'exception', 'error' => $e->getMessage()]);
+
             return $this->fallbackSummarize($toolResults);
         }
     }
@@ -302,7 +351,7 @@ PROMPT;
 
         if (str_contains($msg, 'update')) {
             $services = $incidentContext['services'] ?? [];
-            if (!empty($services)) {
+            if (! empty($services)) {
                 $calls[] = ['type' => 'update_service_status', 'input' => ['service_name' => $services[0]['name'], 'status' => 'operational']];
             }
         }
@@ -313,9 +362,12 @@ PROMPT;
 
         $seen = [];
         $calls = array_values(array_filter($calls, function ($call) use (&$seen) {
-            $key = $call['type'] . ':' . json_encode($call['input']);
-            if (in_array($key, $seen, true)) return false;
+            $key = $call['type'].':'.json_encode($call['input']);
+            if (in_array($key, $seen, true)) {
+                return false;
+            }
             $seen[] = $key;
+
             return true;
         }));
 
@@ -324,14 +376,14 @@ PROMPT;
 
     protected function fallbackSummarize(array $toolResults): string
     {
-        $completed = array_filter($toolResults, fn($r) => $r['status'] === 'completed');
-        $failed = array_filter($toolResults, fn($r) => $r['status'] === 'failed');
+        $completed = array_filter($toolResults, fn ($r) => $r['status'] === 'completed');
+        $failed = array_filter($toolResults, fn ($r) => $r['status'] === 'failed');
 
-        $summary = "Executed " . count($completed) . " action(s) successfully.";
-        if (!empty($failed)) {
-            $summary .= " " . count($failed) . " action(s) failed.";
+        $summary = 'Executed '.count($completed).' action(s) successfully.';
+        if (! empty($failed)) {
+            $summary .= ' '.count($failed).' action(s) failed.';
         }
-        $summary .= " Monitor the incident for any changes.";
+        $summary .= ' Monitor the incident for any changes.';
 
         return $summary;
     }
