@@ -8,7 +8,7 @@ import type { TelemetryLog } from "@/types";
 import { Terminal, Send, ShieldAlert, CheckCircle2, CornerDownLeft } from "lucide-react";
 
 const levelConfig = {
-  info: { color: "text-blue-400", prefix: "[INF]" },
+  info: { color: "text-info", prefix: "[INF]" },
   warn: { color: "text-amber", prefix: "[WRN]" },
   error: { color: "text-critical font-bold", prefix: "[ERR]" },
   cmd: { color: "text-healthy font-bold", prefix: "[CMD]" },
@@ -19,6 +19,8 @@ export function LiveTerminal() {
   const [logs, setLogs] = useState<TelemetryLog[]>([]);
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
 
@@ -28,9 +30,12 @@ export function LiveTerminal() {
       if (res.data) {
         setLogs(res.data);
         res.data.forEach((l) => seenIdsRef.current.add(l.id));
+        setError(false);
       }
     } catch {
-      // ignore
+      setError(true);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -193,20 +198,32 @@ export function LiveTerminal() {
           </span>
         </div>
         <div className="flex items-center gap-3 text-[10px] font-mono text-fg-muted">
-          <span className="flex items-center gap-1 text-healthy">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            CONNECTED
+          <span className={`flex items-center gap-1 ${error && logs.length === 0 ? "text-critical" : "text-healthy"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${error && logs.length === 0 ? "bg-critical" : "bg-emerald-400"}`} />
+            {error && logs.length === 0 ? "STREAM ERROR" : "CONNECTED"}
           </span>
-          <span>{logs.length} EVENTS</span>
+          <span>{loading ? "…" : `${logs.length} EVENTS`}</span>
         </div>
       </div>
 
       {/* Log Feed */}
       <div
         ref={scrollRef}
-        className="h-56 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1.5 bg-black/40 scrollbar-thin scrollbar-thumb-slate-800"
+        className="h-56 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1.5 bg-card border-border-subtle"
       >
-        {logs.length === 0 ? (
+        {loading ? (
+          <p className="text-fg-muted italic">Loading telemetry activity stream...</p>
+        ) : error && logs.length === 0 ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-critical italic">Telemetry stream unavailable — check connection.</p>
+            <button
+              onClick={fetchLogs}
+              className="rounded border border-border bg-surface px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-fg-primary hover:bg-hover-row transition-all"
+            >
+              Retry
+            </button>
+          </div>
+        ) : logs.length === 0 ? (
           <p className="text-fg-muted italic">Awaiting telemetry activity stream...</p>
         ) : (
           logs.map((log) => {
@@ -216,7 +233,7 @@ export function LiveTerminal() {
               <div key={log.id} className="flex items-start gap-2.5 hover:bg-surface/40 rounded px-1.5 py-0.5">
                 <span className="shrink-0 text-fg-muted">[{timeStr}]</span>
                 <span className={`shrink-0 font-bold ${cfg.color}`}>{cfg.prefix}</span>
-                <span className={log.level === "cmd" ? "text-emerald-300 font-semibold" : "text-fg-secondary"}>
+                <span className={log.level === "cmd" ? "text-healthy font-semibold" : "text-fg-secondary"}>
                   {log.message}
                 </span>
               </div>

@@ -1,7 +1,8 @@
 {
   "version": 2,
   "framework": null,
-  "buildCommand": "echo 'skip build'",
+  "installCommand": "composer install --no-dev --no-scripts --optimize-autoloader",
+  "buildCommand": "php artisan migrate --force || true",
   "outputDirectory": "public",
   "functions": {
     "api/index.php": {
