@@ -47,8 +47,8 @@ class AgentBrain
             $text = $body['candidates'][0]['content']['parts'][0]['text'] ?? null;
 
             if ($text) {
-                $parsed = json_decode($text, true);
-                if (is_array($parsed)) {
+                $parsed = $this->extractJsonArray($text);
+                if ($parsed !== null) {
                     return $parsed;
                 }
             }
@@ -104,6 +104,31 @@ class AgentBrain
         }
     }
 
+    /**
+     * Try to pull a JSON array of tool calls out of the model's text reply.
+     * Tolerates markdown fences, leading/trailing prose, and stray newlines.
+     *
+     * @return array<int, array{type: string, input?: array}>|null
+     */
+    protected function extractJsonArray(string $text): ?array
+    {
+        $text = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $text) ?? $text);
+
+        $json = $text;
+        $start = strpos($json, '[');
+        $end = strrpos($json, ']');
+        if ($start !== false && $end !== false && $end > $start) {
+            $json = substr($json, $start, $end - $start + 1);
+        }
+
+        $decoded = json_decode($json, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        return null;
+    }
+
     protected function buildSystemPrompt(): string
     {
         return <<<'PROMPT'
@@ -120,8 +145,13 @@ Available tools:
 - resolve_incident: Mark the incident as resolved (no params)
 - update_service_status: Change service status (params: service_name, status)
 
-Analyze the incident context carefully. Consider severity, affected services, and current status when deciding actions.
-Always respond with a JSON array of tool calls, or an empty array if no actions needed.
+The Incident Context includes the incident, its affected services, recent activity, hypotheses, and telemetry. Use it to pick the most effective tools.
+
+Reasoning rules:
+- Chain related tools in the order a human on-call engineer would: diagnose first, then remediate (restart/scale/rollback/update status), then notify, create follow-ups, and finally resolve / generate the post-mortem.
+- Only act on services that are actually listed in the context or referenced by the user.
+- Return an empty array [] when the incident is fully handled or no further action is needed.
+- Respond with ONLY a JSON array of tool calls, e.g. [{"type":"run_diagnostics","input":{}}]. No prose, no markdown fences.
 PROMPT;
     }
 

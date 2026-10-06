@@ -7,6 +7,7 @@ use App\Models\Incident;
 use App\Models\IncidentActivity;
 use App\Models\Service;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AgentActionExecutor
@@ -106,12 +107,27 @@ class AgentActionExecutor
         $run = $action->run;
         $incident = $run->incident;
 
+        $deliveredTo = [];
+
+        $slackUrl = config('services.slack.webhook_url');
+        if ($slackUrl) {
+            Http::post($slackUrl, ['text' => $message])->throw();
+            $deliveredTo[] = 'slack';
+        }
+
+        $teamsUrl = config('services.teams.webhook_url');
+        if ($teamsUrl) {
+            Http::post($teamsUrl, ['text' => $message])->throw();
+            $deliveredTo[] = 'microsoft-teams';
+        }
+
         $this->logAgentActivity($incident, $userId, "Notification sent: {$message}", [
             'action' => 'notify',
             'message' => $message,
+            'delivered_to' => $deliveredTo ?: ['simulated'],
         ]);
 
-        return ['message' => $message, 'status' => 'sent'];
+        return ['message' => $message, 'status' => 'sent', 'delivered_to' => $deliveredTo ?: ['simulated']];
     }
 
     protected function runDiagnostics(AgentAction $action, int $userId): array

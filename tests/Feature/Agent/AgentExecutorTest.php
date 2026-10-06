@@ -8,6 +8,7 @@ use App\Models\Incident;
 use App\Models\IncidentActivity;
 use App\Services\AgentActionExecutor;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 
 class AgentExecutorTest extends AgentTestCase
 {
@@ -83,6 +84,46 @@ class AgentExecutorTest extends AgentTestCase
 
         $this->assertSame('All hands on deck', $output['message']);
         $this->assertSame('sent', $output['status']);
+    }
+
+    public function test_send_notification_posts_to_slack_when_webhook_is_configured(): void
+    {
+        config(['services.slack.webhook_url' => 'https://hooks.slack.com/services/PULSE/TEST']);
+        Http::fake([
+            'https://hooks.slack.com/*' => Http::response('ok', 200),
+        ]);
+
+        $company = $this->makeCompany();
+        $user = $this->makeUser($company);
+        $incident = $this->makeIncident($company, [], null, $user);
+        $run = $this->makeRun($company, $user, [], $incident);
+        $action = $this->makeAction($run, 'send_notification', ['message' => 'P0 — gateway down']);
+
+        $output = $this->executor()->execute($action, $user->id);
+
+        $this->assertSame('sent', $output['status']);
+        $this->assertSame(['slack'], $output['delivered_to'] ?? []);
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://hooks.slack.com/services/PULSE/TEST'
+                && $request['text'] === 'P0 — gateway down';
+        });
+    }
+
+    public function test_send_notification_not_faked_is_simulated_without_webhooks(): void
+    {
+        config(['services.slack.webhook_url' => '']);
+        config(['services.teams.webhook_url' => '']);
+
+        $company = $this->makeCompany();
+        $user = $this->makeUser($company);
+        $incident = $this->makeIncident($company, [], null, $user);
+        $run = $this->makeRun($company, $user, [], $incident);
+        $action = $this->makeAction($run, 'send_notification', ['message' => 'test']);
+
+        $output = $this->executor()->execute($action, $user->id);
+
+        $this->assertSame(['simulated'], $output['delivered_to'] ?? []);
+        Http::assertNothingSent();
     }
 
     public function test_run_diagnostics_reports_degraded_services(): void

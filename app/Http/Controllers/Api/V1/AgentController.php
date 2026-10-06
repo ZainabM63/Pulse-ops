@@ -30,13 +30,19 @@ class AgentController extends Controller
 
     protected AgentBrain $brain;
     protected AgentActionExecutor $executor;
+    protected bool $geminiLoop = false;
 
-    public function __construct()
+    public function __construct(?AgentBrain $brain = null, ?AgentActionExecutor $executor = null)
     {
-        $this->brain = config('services.gemini.key')
+        $this->brain = $brain ?: (config('services.gemini.key')
             ? new AgentBrain()
-            : new MockAgentBrain();
-        $this->executor = new AgentActionExecutor();
+            : new MockAgentBrain());
+        $this->executor = $executor ?: new AgentActionExecutor();
+        // Only the real Gemini brain supports the observe → re-decide loop.
+        // The keyword (mock) brain is deterministic and must keep its
+        // single-round behaviour.
+        $this->geminiLoop = ($this->brain instanceof AgentBrain)
+            && !($this->brain instanceof MockAgentBrain);
     }
 
     public function index(Request $request): AnonymousResourceCollection
@@ -74,32 +80,12 @@ class AgentController extends Controller
         ]);
 
         $incident = null;
-        $incidentContext = [];
 
         if ($validated['incident_id'] ?? null) {
-            $incident = Incident::with(['services', 'activities', 'assignee', 'team'])
-                ->findOrFail($validated['incident_id']);
-
-            $incidentContext = [
-                'id' => $incident->id,
-                'title' => $incident->title,
-                'severity' => $incident->severity,
-                'status' => $incident->status,
-                'description' => $incident->description,
-                'services' => $incident->services->map(fn($s) => [
-                    'id' => $s->id,
-                    'name' => $s->name,
-                    'status' => $s->status,
-                ])->toArray(),
-                'recent_activities' => $incident->activities->take(5)->map(fn($a) => [
-                    'type' => $a->type,
-                    'body' => $a->body,
-                    'user' => $a->user?->name,
-                ])->toArray(),
-                'assignee' => $incident->assignee?->name,
-                'team' => $incident->team?->name,
-            ];
+            $incident = Incident::findOrFail($validated['incident_id']);
         }
+
+        $incidentContext = $this->buildIncidentContext($incident);
 
         $toolCalls = $this->brain->decide($validated['message'], $incidentContext);
 
@@ -125,13 +111,8 @@ class AgentController extends Controller
 
         if (($validated['mode'] ?? 'sequential') === 'autonomous') {
             $run->update(['status' => 'running']);
-            $results = $this->executeAll($run, $request->user()->id);
-            $allActions = $run->actions()->get();
-            $hasFailed = $allActions->contains('status', 'failed');
-            $hasPending = $allActions->contains('status', 'pending');
-            $finalStatus = $hasFailed ? 'failed' : ($hasPending ? 'running' : 'completed');
-            $summary = $this->brain->summarize($validated['message'], $results);
-            $run->update(['status' => $finalStatus, 'metadata' => array_merge($run->metadata ?? [], ['summary' => $summary])]);
+            $results = $this->executeWithLoop($run, $validated['message'], $request->user()->id);
+            $this->finalizeRun($run, $validated['message'], $results);
         }
 
         return response()->json([
@@ -151,19 +132,7 @@ class AgentController extends Controller
             'message' => ['required', 'string', 'max:2000'],
         ]);
 
-        $incident = $run->incident;
-        $incidentContext = [];
-
-        if ($incident) {
-            $incident->load(['services', 'activities']);
-            $incidentContext = [
-                'id' => $incident->id,
-                'title' => $incident->title,
-                'severity' => $incident->severity,
-                'status' => $incident->status,
-                'services' => $incident->services->map(fn($s) => ['name' => $s->name, 'status' => $s->status])->toArray(),
-            ];
-        }
+        $incidentContext = $this->buildIncidentContext($run->incident);
 
         $toolCalls = $this->brain->decide($validated['message'], $incidentContext);
 
@@ -194,20 +163,12 @@ class AgentController extends Controller
         }
 
         $run->update(['status' => 'running']);
-        $results = $this->executeAll($run, $request->user()->id);
-
-        $summary = $this->brain->summarize($run->title, $results);
-
-        $allActions = $run->actions()->get();
-        $hasFailed = $allActions->contains('status', 'failed');
-        $hasPending = $allActions->contains('status', 'pending');
-
-        $finalStatus = $hasFailed ? 'failed' : ($hasPending ? 'running' : 'completed');
-        $run->update(['status' => $finalStatus, 'metadata' => array_merge($run->metadata ?? [], ['summary' => $summary])]);
+        $results = $this->executeWithLoop($run, $run->title, $request->user()->id);
+        $this->finalizeRun($run, $run->title, $results);
 
         return response()->json([
             'run' => new \App\Http\Resources\AgentRunResource($run->fresh()->load(['user', 'actions', 'incident'])),
-            'summary' => $summary,
+            'summary' => $run->metadata['summary'] ?? null,
         ]);
     }
 
@@ -235,10 +196,10 @@ class AgentController extends Controller
         }
     }
 
-    protected function executeAll(AgentRun $run, int $userId): array
+    protected function executeAll(AgentRun $run, int $userId, ?\Illuminate\Support\Collection $actions = null): array
     {
         $results = [];
-        $pendingActions = $run->actions()->where('status', 'pending')->orderBy('id')->get();
+        $pendingActions = $actions ?? $run->actions()->where('status', 'pending')->orderBy('id')->get();
 
         foreach ($pendingActions as $action) {
             try {
@@ -250,5 +211,178 @@ class AgentController extends Controller
         }
 
         return $results;
+    }
+
+    /**
+     * Execute the incident response with an observe → re-decide loop.
+     *
+     * Round 1 runs the actions already planned. When the real Gemini brain is
+     * active, results are fed back and it keeps deciding the next best batch
+     * until it returns an empty array, every action fails, or the round cap is
+     * reached. The deterministic keyword brain keeps its single-round behaviour.
+     */
+    protected function executeWithLoop(AgentRun $run, string $message, int $userId, int $maxRounds = 5): array
+    {
+        $results = [];
+        $history = [];
+        $round = 0;
+
+        while ($round < $maxRounds) {
+            $round++;
+
+            if ($round === 1) {
+                // Execute whatever the initial plan already scheduled.
+            } elseif ($this->geminiLoop) {
+                $toolCalls = $this->brain->decide(
+                    $this->buildContinueMessage($message, $history),
+                    $this->buildIncidentContext($run->incident)
+                );
+
+                if (empty($toolCalls)) {
+                    break;
+                }
+
+                foreach ($toolCalls as $call) {
+                    AgentAction::create([
+                        'agent_run_id' => $run->id,
+                        'type' => $call['type'],
+                        'label' => self::ACTION_LABELS[$call['type']] ?? $call['type'],
+                        'status' => 'pending',
+                        'input' => $call['input'] ?? null,
+                    ]);
+                }
+            } else {
+                break;
+            }
+
+            $pending = $run->actions()->where('status', 'pending')->orderBy('id')->get();
+            if ($pending->isEmpty()) {
+                break;
+            }
+
+            $roundResults = $this->executeAll($run, $userId, $pending);
+            $results = array_merge($results, $roundResults);
+            $history[] = $this->formatResults($roundResults);
+
+            // Stop early if nothing in this round made progress.
+            if (collect($roundResults)->every(fn ($r) => $r['status'] === 'failed')) {
+                break;
+            }
+
+            $run->update(['status' => 'running', 'metadata' => array_merge($run->metadata ?? [], ['round' => $round])]);
+        }
+
+        return $results;
+    }
+
+    protected function finalizeRun(AgentRun $run, string $message, array $results): void
+    {
+        $summary = $this->brain->summarize($message, $results);
+
+        $allActions = $run->actions()->get();
+        $hasFailed = $allActions->contains('status', 'failed');
+        $hasPending = $allActions->contains('status', 'pending');
+        $finalStatus = $hasFailed ? 'failed' : ($hasPending ? 'running' : 'completed');
+
+        $run->update([
+            'status' => $finalStatus,
+            'metadata' => array_merge($run->metadata ?? [], ['summary' => $summary]),
+        ]);
+    }
+
+    /**
+     * Build a rich, decision-ready snapshot of the incident: linked services
+     * (with severity + team), activity timeline, hypotheses and telemetry.
+     */
+    protected function buildIncidentContext(?Incident $incident): array
+    {
+        if (!$incident) {
+            return [];
+        }
+
+        $incident->load([
+            'services.team',
+            'activities.user',
+            'hypotheses.user',
+            'telemetryLogs.service',
+        ]);
+
+        return [
+            'id' => $incident->id,
+            'title' => $incident->title,
+            'severity' => $incident->severity,
+            'status' => $incident->status,
+            'description' => $incident->description,
+            'acknowledged' => $incident->acknowledged_at?->toISOString(),
+            'services' => $incident->services->map(fn ($s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'status' => $s->status,
+                'severity_level' => $s->severity_level,
+                'team' => $s->team?->name,
+            ])->values()->toArray(),
+            'assignee' => $incident->assignee?->name,
+            'team' => $incident->team?->name,
+            'recent_activities' => $incident->activities->sortByDesc('id')->take(8)->map(fn ($a) => [
+                'type' => $a->type,
+                'body' => $a->body,
+                'user' => $a->user?->name,
+            ])->values()->toArray(),
+            'hypotheses' => $incident->hypotheses->sortByDesc('id')->take(5)->map(fn ($h) => [
+                'title' => $h->title,
+                'confidence' => $h->confidence,
+                'status' => $h->status,
+            ])->values()->toArray(),
+            'telemetry' => $incident->telemetryLogs->sortByDesc('logged_at')->take(8)->map(fn ($t) => [
+                'level' => $t->level,
+                'message' => $t->message,
+                'source' => $t->source,
+                'service' => $t->service?->name,
+                'logged_at' => $t->logged_at?->toISOString(),
+            ])->values()->toArray(),
+        ];
+    }
+
+    protected function buildContinueMessage(string $message, array $history): string
+    {
+        return "Continue the incident response already in progress. Original request: {$message}\n\n"
+            ."Actions already executed:\n".implode("\n", $history)
+            ."\n\nDecide the next best action(s) using the available tools. If the incident is now fully handled, "
+            .'return an empty array []. Do not repeat tools that already succeeded.';
+    }
+
+    protected function formatResults(array $results): string
+    {
+        $lines = [];
+
+        foreach ($results as $r) {
+            if (($r['status'] ?? '') === 'completed') {
+                $output = $r['output'] ?? [];
+                $detail = '';
+                foreach (['service', 'service_name'] as $key) {
+                    if (isset($output[$key])) {
+                        $detail .= " service={$output[$key]}";
+                        break;
+                    }
+                }
+                if (isset($output['replicas'])) {
+                    $detail .= " replicas={$output['replicas']}";
+                }
+                if (isset($output['version'])) {
+                    $detail .= " version={$output['version']}";
+                }
+                if (isset($output['message'])) {
+                    $detail .= ' message='.mb_substr((string) $output['message'], 0, 140);
+                }
+                if (isset($output['delivered_to'])) {
+                    $detail .= ' delivered_to='.implode(',', (array) $output['delivered_to']);
+                }
+                $lines[] = "- {$r['type']}: OK{$detail}";
+            } else {
+                $lines[] = "- {$r['type']}: FAILED ({$r['error']})";
+            }
+        }
+
+        return mb_substr(implode("\n", $lines), 0, 2000);
     }
 }
