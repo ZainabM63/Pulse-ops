@@ -36,9 +36,11 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  const fetchingRef = useRef(false);
 
   const fetchData = useCallback(async () => {
-    if (!user) return;
+    if (!user || fetchingRef.current) return;
+    fetchingRef.current = true;
     try {
       const [statsRes, incidentsRes, servicesRes] = await Promise.allSettled([
         api.get<DashboardStats>("/dashboard"),
@@ -52,6 +54,7 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
     } catch {
       // silent
     } finally {
+      fetchingRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
   }, [user]);
@@ -59,7 +62,11 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     fetchData();
-    return () => { mountedRef.current = false; };
+    const interval = setInterval(fetchData, 20000);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [fetchData]);
 
   return (

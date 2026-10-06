@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import { useRealtimeIncident } from "@/hooks/useRealtimeIncident";
 import type { TelemetryLog } from "@/types";
 import { Terminal, Send, ShieldAlert, CheckCircle2, CornerDownLeft } from "lucide-react";
@@ -16,6 +17,7 @@ const levelConfig = {
 
 export function LiveTerminal() {
   const { user } = useAuth();
+  const { refresh } = useDashboardData();
   const [logs, setLogs] = useState<TelemetryLog[]>([]);
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
@@ -133,6 +135,7 @@ export function LiveTerminal() {
         });
         await api.put(`/incidents/${incidentId}`, { status: "investigating" });
         await addTelemetryLog("info", `[SUCCESS] INC-${String(incidentId).padStart(4, "0")} acknowledged. Responder notified.`, "system");
+        refresh();
       } catch (err) {
         await addTelemetryLog("error", `[FAILED] Acknowledge INC-${String(incidentId).padStart(4, "0")}: ${(err as Error).message}`, "system");
       }
@@ -155,6 +158,7 @@ export function LiveTerminal() {
         const nextSeverity = severityOrder[Math.min(currentIdx + 1, severityOrder.length - 1)];
         await api.put(`/incidents/${incidentId}`, { severity: nextSeverity });
         await addTelemetryLog("warn", `[ESCALATED] INC-${String(incidentId).padStart(4, "0")} severity updated to ${nextSeverity.toUpperCase()}.`, "system");
+        refresh();
       } catch (err) {
         await addTelemetryLog("error", `[FAILED] Escalate INC-${String(incidentId).padStart(4, "0")}: ${(err as Error).message}`, "system");
       }

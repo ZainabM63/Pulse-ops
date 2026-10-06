@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import type { AgentRun, Incident } from "@/types";
 import { AgentLauncher } from "./AgentLauncher";
 import { AgentChat } from "./AgentChat";
@@ -14,26 +15,34 @@ interface Props {
 }
 
 export function AgentPanel({ incidentId, incidents, embedded }: Props) {
+  const { refresh } = useDashboardData();
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<AgentRun[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const refreshIfFinished = useCallback((run: AgentRun | null) => {
+    if (run && ["completed", "failed", "cancelled"].includes(run.status)) refresh();
+  }, [refresh]);
+
   const handleRunCreated = useCallback((run: AgentRun) => {
     setActiveRun(run);
-  }, []);
+    refreshIfFinished(run);
+  }, [refreshIfFinished]);
 
   const handleRunUpdate = useCallback((run: AgentRun) => {
     setActiveRun(run);
-  }, []);
+    refreshIfFinished(run);
+  }, [refreshIfFinished]);
 
   const handleCancel = useCallback(async () => {
     if (!activeRun) return;
     try {
       const res = await api.post<{ run: AgentRun }>(`/agent/runs/${activeRun.id}/cancel`);
       setActiveRun(res.run);
+      refreshIfFinished(res.run);
     } catch { /* silent */ }
-  }, [activeRun]);
+  }, [activeRun, refreshIfFinished]);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);

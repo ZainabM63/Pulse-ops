@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { IncidentRow } from "@/components/IncidentRow";
 import { DeclareIncidentModal } from "@/components/incidents/DeclareIncidentModal";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import type { Incident, PaginatedResponse } from "@/types";
 import { Plus, Play, AlertTriangle, Search, Zap, Radio } from "lucide-react";
 
@@ -19,6 +20,7 @@ const filterPills: { key: FilterKey; label: string; color: string }[] = [
 
 export default function IncidentsPage() {
   const router = useRouter();
+  const { refresh } = useDashboardData();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [allIncidents, setAllIncidents] = useState<Incident[]>([]);
   const [search, setSearch] = useState("");
@@ -51,6 +53,7 @@ export default function IncidentsPage() {
   const refreshAll = () => {
     fetchIncidents(page);
     fetchAll();
+    refresh();
   };
 
   useEffect(() => {
