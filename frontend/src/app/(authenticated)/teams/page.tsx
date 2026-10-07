@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { getShiftRemaining } from "@/lib/shift";
 import type { Team, PaginatedResponse } from "@/types";
 import { CreateTeamModal } from "@/components/teams/CreateTeamModal";
 import { EditTeamModal } from "@/components/teams/EditTeamModal";
@@ -15,6 +16,12 @@ export default function TeamsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [shiftRemaining, setShiftRemaining] = useState(() => getShiftRemaining());
+
+  useEffect(() => {
+    const interval = setInterval(() => setShiftRemaining(getShiftRemaining()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchTeams = () => {
     setLoading(true);
@@ -171,13 +178,12 @@ export default function TeamsPage() {
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       PRIMARY ON-CALL
                     </span>
-                    <span>12h SHIFT REMAINING</span>
+                    <span>{shiftRemaining} SHIFT REMAINING</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-fg-primary">
                       {team.users && team.users[0] ? team.users[0].name : "Primary Responder"}
                     </span>
-                    <span className="text-[9px] font-mono text-fg-muted">SLA: 5m ACK</span>
                   </div>
                 </div>
               </div>

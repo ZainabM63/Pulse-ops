@@ -31,6 +31,8 @@ export default function IncidentsPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [simulateBusy, setSimulateBusy] = useState(false);
+  const [runbookBusy, setRunbookBusy] = useState(false);
 
   const fetchIncidents = (p: number, silent = false) => {
     if (!silent) setLoading(true);
@@ -133,6 +135,35 @@ export default function IncidentsPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const handleSimulateOutage = async () => {
+    if (simulateBusy) return;
+    setSimulateBusy(true);
+    try {
+      const res = await api.post<{ message: string; incident: Incident }>("/incidents/simulate");
+      const id = `INC-${String(res.incident.id).padStart(4, "0")}`;
+      showToast(`Simulated incident ${id} created`);
+      refreshAll();
+    } catch {
+      showToast("Failed to simulate outage");
+    } finally {
+      setSimulateBusy(false);
+    }
+  };
+
+  const handleExecuteRunbook = async () => {
+    if (runbookBusy) return;
+    setRunbookBusy(true);
+    try {
+      const res = await api.post<{ message: string; incidents_affected: number }>("/runbooks/execute");
+      showToast(res.message);
+      refreshAll();
+    } catch {
+      showToast("Failed to execute runbook");
+    } finally {
+      setRunbookBusy(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -149,18 +180,20 @@ export default function IncidentsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <button
-            onClick={() => showToast("Simulate Outage: Synthetic P0 alert dispatched to test channel")}
-            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+            onClick={handleSimulateOutage}
+            disabled={simulateBusy}
+            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary disabled:opacity-50"
           >
             <Radio className="h-3 w-3" />
-            Simulate Outage Alert
+            {simulateBusy ? "Simulating..." : "Simulate Outage Alert"}
           </button>
           <button
-            onClick={() => showToast("Runbook execution initiated for active incidents")}
-            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary"
+            onClick={handleExecuteRunbook}
+            disabled={runbookBusy}
+            className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-[10px] font-medium text-fg-muted transition-colors hover:border-amber/40 hover:text-fg-primary disabled:opacity-50"
           >
             <Play className="h-3 w-3" />
-            Execute Runbook
+            {runbookBusy ? "Executing..." : "Execute Runbook"}
           </button>
           <button
             onClick={() => setModalOpen(true)}

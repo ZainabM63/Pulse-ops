@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import type { Incident } from "@/types";
-import { Video, FileText, MessageSquare, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Video, FileText, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 
 interface Props {
   incident: Incident;
@@ -12,7 +12,12 @@ interface Props {
 export function QuickActions({ incident }: Props) {
   const [toast, setToast] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"success" | "error">("success");
-  const [copied, setCopied] = useState(false);
+  const [zoomUrl, setZoomUrl] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("pulseops_zoom_link") || "";
+    return "";
+  });
+  const [zoomInput, setZoomInput] = useState(zoomUrl);
+  const [zoomConfigOpen, setZoomConfigOpen] = useState(false);
   const [slackUrl, setSlackUrl] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("pulseops_slack_webhook") || "";
     return "";
@@ -34,17 +39,32 @@ export function QuickActions({ incident }: Props) {
   };
 
   const handleZoomBridge = async () => {
-    const meetingId = Math.floor(1000000000 + Math.random() * 9000000000);
-    const url = `https://zoom.us/j/${meetingId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      showToast("Zoom bridge link copied to clipboard");
-      logActivity("zoom_bridge", `Zoom bridge link generated: ${url}`, { url });
-    } catch {
-      showToast("Failed to copy — check clipboard permissions", "error");
+    if (zoomUrl) {
+      try {
+        await navigator.clipboard.writeText(zoomUrl);
+        showToast("Meeting link copied — opening meeting");
+        logActivity("zoom_bridge", `Joined Zoom bridge: ${zoomUrl}`, { url: zoomUrl });
+      } catch { /* clipboard may be unavailable; still open the meeting */ }
+      window.open(zoomUrl, "_blank", "noopener");
+      return;
     }
+    window.open("https://zoom.us/meeting/schedule", "_blank", "noopener");
+    showToast("Opening Zoom — create your meeting, then paste the link here");
+    setZoomConfigOpen(true);
+  };
+
+  const saveZoomUrl = () => {
+    const url = zoomInput.trim();
+    if (url) {
+      localStorage.setItem("pulseops_zoom_link", url);
+      setZoomUrl(url);
+      showToast("Meeting link saved");
+    } else {
+      localStorage.removeItem("pulseops_zoom_link");
+      setZoomUrl("");
+      showToast("Meeting link cleared");
+    }
+    setZoomConfigOpen(false);
   };
 
   const handleExportReport = () => {
@@ -173,8 +193,8 @@ export function QuickActions({ incident }: Props) {
           onClick={handleZoomBridge}
           className="flex w-full items-center gap-2.5 rounded border border-border bg-canvas px-3 py-2 text-[11px] text-fg-primary transition-colors hover:border-amber/40 hover:bg-hover-row"
         >
-          {copied ? <Check className="h-3.5 w-3.5 text-healthy" /> : <Video className="h-3.5 w-3.5 text-amber" />}
-          {copied ? "Link Copied!" : "Trigger Zoom Bridge"}
+          <Video className="h-3.5 w-3.5 text-amber" />
+          {zoomUrl ? "Join Zoom Bridge" : "Create Zoom Meeting"}
         </button>
 
         <button
@@ -194,6 +214,32 @@ export function QuickActions({ incident }: Props) {
           {sendingSlack ? "Sending..." : "Generate Slack Alert"}
         </button>
       </div>
+
+      <button
+        onClick={() => setZoomConfigOpen(!zoomConfigOpen)}
+        className="mt-2 flex w-full items-center justify-center gap-1 text-[9px] uppercase tracking-wider text-fg-muted transition-colors hover:text-fg-secondary"
+      >
+        Meeting Link {zoomUrl ? "\u2713 Set" : "Not Set"}
+        {zoomConfigOpen ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+      </button>
+
+      {zoomConfigOpen && (
+        <div className="mt-2 space-y-2">
+          <input
+            type="url"
+            value={zoomInput}
+            onChange={(e) => setZoomInput(e.target.value)}
+            placeholder="https://zoom.us/j/..."
+            className="w-full rounded border border-border bg-canvas px-2 py-1.5 font-mono text-[10px] text-fg-primary placeholder-fg-muted/50 outline-none focus:border-amber"
+          />
+          <button
+            onClick={saveZoomUrl}
+            className="w-full rounded border border-amber/30 bg-amber/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber transition-colors hover:bg-amber/20"
+          >
+            Save Meeting Link
+          </button>
+        </div>
+      )}
 
       <button
         onClick={() => setSlackConfigOpen(!slackConfigOpen)}

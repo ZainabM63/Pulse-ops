@@ -1,13 +1,23 @@
 "use client";
 
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useWebSocketStatus, type WebSocketStatus } from "@/hooks/useWebSocketStatus";
 import { ServiceHealthGrid } from "@/components/dashboard/ServiceHealthGrid";
 import { LiveTerminal } from "@/components/dashboard/LiveTerminal";
 import { AgentPanel } from "@/components/agent/AgentPanel";
-import { AlertTriangle, Shield, AlertOctagon, Activity, Zap, Cpu, Radio } from "lucide-react";
+import { AlertTriangle, Shield, AlertOctagon, Activity, Radio } from "lucide-react";
+
+const WS_LABELS: Record<WebSocketStatus, { text: string; dot: string; pulse: boolean }> = {
+  online: { text: "REVERB WEBSOCKET BUS: ONLINE", dot: "bg-emerald-500", pulse: true },
+  connecting: { text: "REVERB WEBSOCKET BUS: CONNECTING", dot: "bg-amber-400", pulse: true },
+  offline: { text: "REVERB WEBSOCKET BUS: OFFLINE", dot: "bg-rose-500", pulse: false },
+  polling: { text: "REALTIME: POLLING FALLBACK", dot: "bg-slate-400", pulse: false },
+};
 
 export default function DashboardPage() {
   const { stats, incidents } = useDashboardData();
+  const wsStatus = useWebSocketStatus();
+  const ws = WS_LABELS[wsStatus];
 
   return (
     <div className="p-4 sm:p-6 bg-canvas min-h-full text-fg-primary font-sans space-y-6">
@@ -29,8 +39,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-2 font-mono text-xs text-fg-muted bg-surface px-3 py-1.5 rounded-lg border border-border">
-          <Radio className="h-3.5 w-3.5 text-healthy animate-pulse" />
-          <span>REVERB WEBSOCKET BUS: ONLINE</span>
+          <Radio className={`h-3.5 w-3.5 text-fg-muted ${ws.pulse ? "animate-pulse" : ""}`} />
+          <span className="flex items-center gap-1.5">
+            <span className={`h-1.5 w-1.5 rounded-full ${ws.dot} ${ws.pulse ? "animate-pulse" : ""}`} />
+            {ws.text}
+          </span>
         </div>
       </div>
 

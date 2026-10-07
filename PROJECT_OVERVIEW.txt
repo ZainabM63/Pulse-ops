@@ -1,0 +1,235 @@
+================================================================================
+PULSE // OPS — PROJECT OVERVIEW (TXT)
+================================================================================
+
+PROJECT NAME:        PULSE // OPS (frontend name: "Pulse Ops")
+REPO:                https://github.com/ZainabM63/Pulse-ops
+PURPOSE:             Enterprise B2B (SRE/DevOps) command center for real-time
+                     incident response and infrastructure telemetry.
+BACKEND:             Laravel 13 JSON API (PHP 8.3+), Sanctum token auth
+FRONTEND:            Next.js 16 SPA (React 19, TypeScript, Tailwind v4)
+REAL-TIME:           Laravel Reverb WebSockets + Laravel Echo
+DATABASE:            SQLite (local dev), PostgreSQL/Neon (production)
+DEPLOYMENT:          Vercel (backend: /api/v1, frontend separate), Docker
+DEMO LOGIN:          sarah@acme.com / password
+
+--------------------------------------------------------------------------------
+1. ARCHITECTURE
+--------------------------------------------------------------------------------
+Monorepo layout:
+  - Laravel API backend (routes/api.php, all endpoints under /api/v1)
+  - Decoupled Next.js SPA in frontend/ (App Router, client-side only, no SSR)
+  - No Blade UI (only stock welcome page); UI is 100% Next.js
+  - Broadcast events queued via database queue driver
+  - Multi-tenancy via CompanyScope global scope (WHERE company_id = auth user)
+  - api/index.php = Vercel serverless entry (tmp storage, auto-migrate on
+    cold start via AppServiceProvider)
+
+--------------------------------------------------------------------------------
+2. FEATURES
+--------------------------------------------------------------------------------
+
+A) AUTHENTICATION (Sanctum bearer tokens)
+   - POST /api/v1/register, /login, /logout, GET /api/v1/user
+   - No password reset / email verification endpoints
+   - Roles exist (admin/manager/member) but are NOT enforced server-side
+
+B) INCIDENT MANAGEMENT
+   - Full CRUD: GET/POST/PUT/PATCH/DELETE /api/v1/incidents
+   - Filters: severity, status, assignee_id, unassigned; paginated
+   - Severities: critical / major / minor / info
+   - Statuses: investigating -> identified -> monitoring -> resolved -> postmortem
+   - Auto-logs activities (declared, status change, severity change, assignment)
+   - Auto-notifies involved users (reporter, assignee, team members)
+   - blast_radius field, resolved_at auto-set, service linking (pivot)
+   - Activity feed endpoint with after_id cursor polling (getChat)
+   - Inline comments on update
+
+C) INCIDENT WAR ROOM (real-time collaboration)
+   - Chat via POST /incidents/{id}/chat -> IncidentActivity rows
+   - Websocket broadcast: ChatMessageBroadcast on company.{id} channel
+   - Slash commands (frontend): /ack, /escalate, /status, /help, /attach-log
+   - Voice notes: MediaRecorder -> base64 in activity metadata -> VoiceNotePlayer
+   - Voice announcer: SpeechSynthesis alerts for critical events
+   - Elapsed timer, responder count, escalation timer
+   - Root Cause Hypotheses panel: full CRUD on /incidents/{id}/hypotheses
+     (title, confidence 0-100, status investigating/hypothesis/ruled_out/
+      confirmed, evidence JSON, owner)
+
+D) AI REMEDIATION AGENT (headline feature, Google Gemini)
+   - Endpoints (throttled 30 req/min): /api/v1/agent/health, /agent/runs
+     (index/store/show), /agent/runs/{run}/chat, /execute, /cancel
+   - AgentBrain: Gemini function-calling (model gemini-3.6-flash), system
+     prompt for SRE diagnosis -> remediate -> notify -> resolve
+   - MockAgentBrain: deterministic keyword fallback when no API key
+   - Multi-round loop (max 5 rounds): observe results, re-decide, dedupe,
+     stop when no progress (sequential mode); autonomous mode auto-executes
+   - 9 tool actions:
+       restart_service       (real: sets service operational)
+       scale_resources       (simulated)
+       rollback_deployment   (simulated)
+       send_notification     (real: Slack/Teams webhooks if configured)
+       run_diagnostics       (real: reads company services, status breakdown)
+       create_followup       (real: creates linked incident)
+       generate_postmortem   (real: Markdown report)
+       resolve_incident      (real: resolves + notifies + broadcasts)
+       update_service_status (real: fuzzy name match, updates status)
+   - AgentRun + AgentAction persistence, ownership authorization (403 if
+     not owner), chat history per run, metadata.summary
+   - Rich incident context: services, team, last 8 activities, 5 hypotheses,
+     8 telemetry entries
+
+E) SERVICES / TELEMETRY
+   - Service CRUD with status (operational/degraded/partial_outage/
+     major_outage), severity_level, auto-slug
+   - SLO metrics: uptime, latency_ms, error_rate, slo_budget, tier
+   - Circuit breaker: PATCH /services/{id}/circuit-breaker (closed/open/
+     half_open)
+   - TelemetryLog: GET/POST /api/v1/telemetry, filters by incident/level,
+     levels info/warn/error/cmd, seeds 7 demo rows when empty
+
+F) TEAMS / ON-CALL
+   - Team CRUD (auto-slug), bulk user assignment (company-scoped)
+   - GET /teams/users for pickers
+   - Frontend: TeamCard (on-call, escalation, fatigue), HandoffModal shift
+     handover
+
+G) DASHBOARD & ACTIVITY LOG
+   - GET /api/v1/dashboard: active incidents, critical/major counts,
+     by_status breakdown, degraded vs total services (company-scoped)
+   - GET /api/v1/activity-log: global feed with level classification,
+     formatted "INC-0001 | Type | body" terminal messages
+
+H) NOTIFICATIONS
+   - GET /api/v1/notifications (paginated + unread_count)
+   - POST /api/v1/notifications/read (ids or all, own only)
+   - UserNotification rows + NotificationBroadcast on notifications.{userId}
+   - Frontend: bell with 15s polling + Echo listener, browser Notification
+     API, speech synthesis
+
+I) REAL-TIME BROADCASTING (3 events, all ShouldBroadcast)
+   - ChatMessageBroadcast     -> .chat.message     on company.{id}
+   - IncidentUpdated          -> .incident.updated  on company.{id}
+   - NotificationBroadcast    -> .notification.created on notifications.{userId}
+   - Channels: App.Models.User.{id}, company.{id}, notifications.{userId}
+     (routes/channels.php; broadcast auth uses auth:sanctum)
+
+--------------------------------------------------------------------------------
+3. DATABASE (21 migrations)
+--------------------------------------------------------------------------------
+companies, teams, users (+password_reset_tokens, sessions),
+services (SLO metrics + circuit_breaker_state), incidents (+blast_radius),
+incident_services (pivot), incident_activities (audit + chat),
+incident_hypotheses, telemetry_logs, user_notifications,
+agent_runs, agent_actions,
+personal_access_tokens, cache, jobs
+
+SEEDER: idempotent demo data — 1 company (Acme Corp Engineering), 2 teams
+(Platform, SRE), 4 users (Sarah Chen admin, Marcus Rivera manager, Aisha
+Patel member, PulseOps Agent bot), 4 services with realistic metrics, 2
+incidents, 3 hypotheses. All passwords = "password".
+
+--------------------------------------------------------------------------------
+4. API ENDPOINT SUMMARY (47 routes)
+--------------------------------------------------------------------------------
+Public:
+  POST /api/v1/register, POST /api/v1/login
+  GET  / (status JSON), GET /up (health)
+
+Authenticated (auth:sanctum):
+  POST /api/v1/logout, GET /api/v1/user
+  GET  /api/v1/notifications, POST /api/v1/notifications/read
+  GET  /api/v1/dashboard, GET /api/v1/activity-log
+  GET|POST /api/v1/telemetry
+  Resource /api/v1/incidents (index/show/store/update/destroy)
+  POST|GET /api/v1/incidents/{id}/chat, POST /incidents/{id}/activity
+  Resource /api/v1/incidents/{id}/hypotheses
+  Resource /api/v1/services + PATCH /services/{id}/circuit-breaker
+  GET /api/v1/teams/users + Resource /api/v1/teams
+  GET /api/v1/agent/health, GET|POST /api/v1/agent/runs
+  GET /api/v1/agent/runs/{run}
+  POST /api/v1/agent/runs/{run}/chat|execute|cancel   [throttle:30,1]
+
+--------------------------------------------------------------------------------
+5. FRONTEND PAGES (Next.js App Router, frontend/src/app)
+--------------------------------------------------------------------------------
+  /login, /register
+  /(authenticated)/dashboard        — stat cards, ServiceHealthGrid,
+                                       LiveTerminal (CLI), AgentPanel
+  /(authenticated)/incidents        — table, search/filter pills, MTTR,
+                                       inline actions, DeclareIncidentModal
+  /(authenticated)/incidents/[id]   — StatusStepper, ActivityFeed,
+                                       EscalationTimer, QuickActions
+  /(authenticated)/incidents/[id]/war-room — chat, slash commands, voice
+                                       notes, hypotheses CRUD, agent panel
+  /(authenticated)/services         — SLO drain bars, circuit-breaker toggle,
+                                       create form, tier filter
+  /(authenticated)/teams            — team CRUD modals, TeamCard, HandoffModal
+
+Key hooks: useAuth (localStorage token pulseops_token), useDashboardData,
+useNotifications (poll + Echo), useRealtimeIncident/useRealtimeChat (Echo
+with polling fallback), useVoiceInput, useVoiceOutput.
+Lib: lib/api.ts (fetch wrapper, 15s timeout, 401 redirect), lib/echo.ts
+(Reverb + pusher-js).
+
+--------------------------------------------------------------------------------
+6. PACKAGES
+--------------------------------------------------------------------------------
+Backend:  laravel/framework ^13.8, laravel/sanctum ^4, laravel/reverb ^1.10,
+          laravel/tinker, composer/ca-bundle
+Dev:      phpunit ^12, pint, mockery, faker, pail
+Frontend: next 16.2.10, react 19.2.4, laravel-echo 2.4, pusher-js 8.6,
+          lucide-react, next-themes, tailwindcss v4
+External: Google Gemini API, Slack webhooks, Teams webhooks, Laravel Reverb
+
+--------------------------------------------------------------------------------
+7. TESTING
+--------------------------------------------------------------------------------
+Run: composer test  (php artisan test)
+14 test files, ~80 tests:
+  - NotificationsTest (6)        — recipients, unread count, read ownership
+  - AgentAuthorizationTest (9)   — run ownership 403s, filters, pagination
+  - AgentChatLoopTest (7)        — multi-round loop, dedupe, rich context
+  - AgentExecutorTest (14)       — all 9 tools, Slack webhook fakes, resolve
+  - AgentGeminiBrainTest (9)     — skips without GEMINI_API_KEY
+  - AgentRun*ModeTest (26)       — autonomous/sequential/creation lifecycles
+  - MockAgentBrainTest (16)      — keyword mapping, dedupe, summaries
+phpunit.xml: sqlite :memory:, sync queue, array cache/session.
+
+--------------------------------------------------------------------------------
+8. NOT PRESENT
+--------------------------------------------------------------------------------
+- No admin panel (Filament/Nova)
+- No payments
+- No email sending (config only); real alerts via Slack/Teams webhooks
+- No file uploads (voice notes are base64 in JSON metadata)
+- No policies/gates; tenant isolation via CompanyScope only; roles
+  unenforced server-side (client-side guards only)
+- No custom artisan commands or scheduler
+
+--------------------------------------------------------------------------------
+9. KEY FILE INDEX
+--------------------------------------------------------------------------------
+routes/api.php, web.php, channels.php
+app/Http/Controllers/Api/V1/   (10 controllers)
+app/Models/                    (11 models)
+app/Services/AgentBrain.php, MockAgentBrain.php,
+             AgentActionExecutor.php, IncidentNotifier.php
+app/Events/                    (3 broadcast events)
+app/Scopes/CompanyScope.php, app/Traits/BelongsToCompany.php
+database/migrations/           (21)
+database/seeders/DatabaseSeeder.php
+tests/{Unit,Feature}/          (14 files)
+frontend/src/{app,components,hooks,lib,types}
+README.md, memory.md (detailed project reference / session log)
+
+--------------------------------------------------------------------------------
+10. KNOWN ISSUES (from memory.md)
+--------------------------------------------------------------------------------
+- No server-side role enforcement; client-side route guards only
+- Some frontend components mix mock data with API data (TelemetryStream unused)
+- QuickActions Zoom/post-mortem/Slack partly client-side
+- scale_resources / rollback_deployment are stubs by design
+- Secrets present in .env (Gemini key, Reverb secret, commented DB password)
+
+================================================================================

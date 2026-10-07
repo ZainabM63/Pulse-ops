@@ -177,6 +177,39 @@ class IncidentController extends Controller
         return response()->json(['message' => 'Incident deleted']);
     }
 
+    public function simulate(Request $request): JsonResponse
+    {
+        $incident = Incident::create([
+            'company_id' => $request->user()->company_id,
+            'title' => 'Simulated outage — synthetic P0 alert',
+            'description' => 'Synthetic P0 alert dispatched from the Incident Command Matrix for game-day / testing purposes. No real customer impact.',
+            'severity' => 'critical',
+            'status' => 'investigating',
+            'reporter_id' => $request->user()->id,
+        ]);
+
+        IncidentActivity::create([
+            'incident_id' => $incident->id,
+            'user_id' => $request->user()->id,
+            'type' => 'command',
+            'body' => 'Synthetic P0 alert dispatched to test channel.',
+            'metadata' => ['simulated' => true],
+        ]);
+
+        $this->notifier->notify($incident, [
+            'type' => 'command',
+            'body' => 'Synthetic P0 alert dispatched to test channel.',
+            'data' => ['simulated' => true],
+        ], $request->user()->id);
+
+        IncidentUpdated::dispatch($incident);
+
+        return response()->json([
+            'message' => 'Simulated incident created',
+            'incident' => new IncidentResource($incident->load(['reporter', 'services'])),
+        ], 201);
+    }
+
     public function chat(Request $request, Incident $incident): JsonResponse
     {
         $validated = $request->validate([

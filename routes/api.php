@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\IncidentController;
 use App\Http\Controllers\Api\V1\IncidentHypothesisController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\RunbookController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TelemetryLogController;
@@ -29,6 +30,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/telemetry', [TelemetryLogController::class, 'index']);
         Route::post('/telemetry', [TelemetryLogController::class, 'store']);
 
+        Route::post('/incidents/simulate', [IncidentController::class, 'simulate']);
+        Route::post('/runbooks/execute', [RunbookController::class, 'execute']);
         Route::apiResource('incidents', IncidentController::class);
         Route::post('/incidents/{incident}/chat', [IncidentController::class, 'chat']);
         Route::get('/incidents/{incident}/chat', [IncidentController::class, 'getChat']);

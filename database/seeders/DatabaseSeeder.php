@@ -52,6 +52,26 @@ class DatabaseSeeder extends Seeder
             ['name' => 'PulseOps Agent', 'password' => Hash::make('agent'), 'company_id' => $company->id, 'team_id' => $sreTeam->id, 'role' => 'member']
         );
 
+        User::firstOrCreate(
+            ['email' => 'alex@acme.com'],
+            ['name' => 'Alex Romero', 'password' => Hash::make('password'), 'company_id' => $company->id, 'team_id' => $sreTeam->id, 'role' => 'member']
+        );
+
+        User::firstOrCreate(
+            ['email' => 'priya@acme.com'],
+            ['name' => 'Priya Nair', 'password' => Hash::make('password'), 'company_id' => $company->id, 'team_id' => $sreTeam->id, 'role' => 'member']
+        );
+
+        User::firstOrCreate(
+            ['email' => 'diego@acme.com'],
+            ['name' => 'Diego Santos', 'password' => Hash::make('password'), 'company_id' => $company->id, 'team_id' => $platformTeam->id, 'role' => 'member']
+        );
+
+        User::firstOrCreate(
+            ['email' => 'lena@acme.com'],
+            ['name' => 'Lena Fischer', 'password' => Hash::make('password'), 'company_id' => $company->id, 'team_id' => $platformTeam->id, 'role' => 'member']
+        );
+
         $gateway = Service::firstOrCreate(
             ['company_id' => $company->id, 'slug' => 'api-gateway'],
             ['team_id' => $platformTeam->id, 'name' => 'API Gateway', 'description' => 'Primary ingress for all external API traffic', 'status' => 'degraded', 'uptime' => 94.20, 'latency_ms' => 1420, 'error_rate' => 5.80, 'slo_budget' => 23, 'tier' => 0, 'circuit_breaker_state' => 'half_open']

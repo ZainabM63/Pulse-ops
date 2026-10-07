@@ -19,7 +19,19 @@ const statusConfig: Record<string, { label: string; color: string; bg: string; b
   major_outage: { label: "OUTAGE", color: "text-critical", bg: "bg-critical-bg", border: "border-critical/40" },
 };
 
-function SloBudgetBar({ budget }: { budget: number }) {
+function SloBudgetBar({ budget }: { budget: number | null }) {
+  if (budget == null) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="uppercase tracking-wider text-fg-muted font-mono">SLO ERROR BUDGET DRAIN</span>
+          <span className="font-mono font-bold text-fg-muted">—</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface border border-border" />
+      </div>
+    );
+  }
+
   const color = budget >= 80 ? "bg-healthy" : budget >= 50 ? "bg-amber" : "bg-critical";
   const textColor = budget >= 80 ? "text-healthy" : budget >= 50 ? "text-amber" : "text-critical";
 
@@ -269,22 +281,26 @@ export default function ServicesPage() {
                 <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg border border-border bg-canvas p-3 text-center">
                   <div>
                     <span className="block text-[9px] font-mono uppercase text-fg-muted">Uptime</span>
-                    <span className="font-mono text-xs font-bold text-healthy">{service.uptime ?? 99.9}%</span>
+                    <span className="font-mono text-xs font-bold text-healthy">
+                      {service.uptime != null ? `${service.uptime}%` : "—"}
+                    </span>
                   </div>
                   <div>
                     <span className="block text-[9px] font-mono uppercase text-fg-muted">Latency</span>
-                    <span className="font-mono text-xs font-bold text-fg-primary">{service.latency_ms ?? 12}ms</span>
+                    <span className="font-mono text-xs font-bold text-fg-primary">
+                      {service.latency_ms != null ? `${service.latency_ms}ms` : "—"}
+                    </span>
                   </div>
                   <div>
                     <span className="block text-[9px] font-mono uppercase text-fg-muted">Error Rate</span>
-                    <span className={`font-mono text-xs font-bold ${(service.error_rate ?? 0) > 1 ? "text-critical" : "text-healthy"}`}>
-                      {service.error_rate ?? 0.05}%
+                    <span className={`font-mono text-xs font-bold ${service.error_rate != null && service.error_rate > 1 ? "text-critical" : "text-healthy"}`}>
+                      {service.error_rate != null ? `${service.error_rate}%` : "—"}
                     </span>
                   </div>
                 </div>
 
                 {/* SLO Budget Drain Bar */}
-                <SloBudgetBar budget={service.slo_budget ?? 95} />
+                <SloBudgetBar budget={service.slo_budget} />
               </div>
 
               {/* Circuit Breaker Interactive Switcher */}

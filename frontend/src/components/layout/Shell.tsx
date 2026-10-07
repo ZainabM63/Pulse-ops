@@ -6,7 +6,9 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { useTheme } from "next-themes";
 import NotificationsBell from "@/components/NotificationsBell";
 import { ChevronDown, LogOut, Sun, Moon, Monitor, Zap, Clock, Users, Menu, X } from "lucide-react";
-import type { Environment } from "@/types";
+import { api } from "@/lib/api";
+import { getShiftRemaining } from "@/lib/shift";
+import type { Environment, Team, PaginatedResponse } from "@/types";
 
 const ENVIRONMENTS: { name: Environment; label: string; color: string }[] = [
   { name: "prod", label: "PROD", color: "bg-healthy text-white" },
@@ -19,44 +21,60 @@ export default function Shell({ menuOpen, onMenuToggle }: { menuOpen?: boolean; 
   const { theme, setTheme } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [env, setEnv] = useState<Environment>("prod");
+  const [env] = useState<Environment>("prod");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const [shiftRemaining, setShiftRemaining] = useState("04h 12m");
+  const [shiftRemaining, setShiftRemaining] = useState("—");
   const [mttr, setMttr] = useState("—");
-  const [mtta] = useState("1m 24s");
+  const [mtta, setMtta] = useState("—");
+  const [onCallPrimary, setOnCallPrimary] = useState<string | null>(null);
+  const [onCallBackup, setOnCallBackup] = useState<string | null>(null);
 
   const { stats, incidents } = useDashboardData();
 
   useEffect(() => {
-    const resolvedIncidents = incidents.filter((i) => i.status === "resolved" && i.resolved_at);
-    if (resolvedIncidents.length > 0) {
-      const totalMin = resolvedIncidents.reduce((acc, i) => {
-        return acc + (new Date(i.resolved_at!).getTime() - new Date(i.created_at).getTime()) / 60000;
-      }, 0);
-      const avg = totalMin / resolvedIncidents.length;
-      const m = Math.floor(avg);
-      const s = Math.round((avg - m) * 60);
-      setMttr(`${m}m ${String(s).padStart(2, "0")}s`);
-    }
+    queueMicrotask(() => {
+      const resolvedIncidents = incidents.filter((i) => i.status === "resolved" && i.resolved_at);
+      if (resolvedIncidents.length > 0) {
+        const totalMin = resolvedIncidents.reduce((acc, i) => {
+          return acc + (new Date(i.resolved_at!).getTime() - new Date(i.created_at).getTime()) / 60000;
+        }, 0);
+        const avg = totalMin / resolvedIncidents.length;
+        const m = Math.floor(avg);
+        const s = Math.round((avg - m) * 60);
+        setMttr(`${m}m ${String(s).padStart(2, "0")}s`);
+      }
+
+      const ackedIncidents = incidents.filter((i) => i.acknowledged_at);
+      if (ackedIncidents.length > 0) {
+        const totalMin = ackedIncidents.reduce((acc, i) => {
+          return acc + (new Date(i.acknowledged_at!).getTime() - new Date(i.created_at).getTime()) / 60000;
+        }, 0);
+        const avg = totalMin / ackedIncidents.length;
+        const m = Math.floor(avg);
+        const s = Math.round((avg - m) * 60);
+        setMtta(`${m}m ${String(s).padStart(2, "0")}s`);
+      }
+    });
   }, [incidents]);
 
   useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      const shiftStart = new Date(now);
-      shiftStart.setHours(8, 0, 0, 0);
-      if (now.getHours() < 8) shiftStart.setDate(shiftStart.getDate() - 1);
-      const shiftEnd = new Date(shiftStart.getTime() + 12 * 3600000);
-      const diff = Math.max(0, shiftEnd.getTime() - now.getTime());
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      setShiftRemaining(`${String(h).padStart(2, "0")}h ${String(m).padStart(2, "0")}m`);
-    };
-    tick();
-    const interval = setInterval(tick, 60000);
+    queueMicrotask(() => setShiftRemaining(getShiftRemaining()));
+    const interval = setInterval(() => setShiftRemaining(getShiftRemaining()), 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    api.get<PaginatedResponse<Team>>("/teams?per_page=100")
+      .then((res) => {
+        const teams = res.data || [];
+        const ownTeam = user?.team ? teams.find((t) => t.id === user.team!.id) : undefined;
+        const team = ownTeam || teams.find((t) => (t.users?.length ?? 0) > 0);
+        setOnCallPrimary(team?.users?.[0]?.name ?? null);
+        setOnCallBackup(team?.users?.[1]?.name ?? null);
+      })
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -131,12 +149,12 @@ export default function Shell({ menuOpen, onMenuToggle }: { menuOpen?: boolean; 
         <Users className="h-3 w-3 text-amber" />
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-glow" />
-          <span className="text-[10px] font-medium text-fg-primary">Sarah Chen</span>
+          <span className="text-[10px] font-medium text-fg-primary">{onCallPrimary || "No responder"}</span>
           <span className="text-[9px] uppercase text-amber">Primary</span>
         </div>
         <div className="h-3 w-px bg-border" />
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-fg-muted">Alex R.</span>
+          <span className="text-[10px] text-fg-muted">{onCallBackup || "—"}</span>
           <span className="text-[9px] uppercase text-fg-muted">Backup</span>
         </div>
         <div className="h-3 w-px bg-border" />
@@ -176,7 +194,7 @@ export default function Shell({ menuOpen, onMenuToggle }: { menuOpen?: boolean; 
               <p className="text-[10px] uppercase tracking-widest text-fg-muted">Active API Key</p>
               <div className="mt-1 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-healthy animate-pulse-glow" />
-                <span className="font-mono text-[11px] text-healthy">X-PulseOps-Key Active</span>
+                <span className="font-mono text-[11px] text-healthy">Bearer Token Active</span>
               </div>
             </div>
             <div className="px-3 py-2">
