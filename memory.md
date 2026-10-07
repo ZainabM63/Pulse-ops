@@ -492,7 +492,7 @@ npm run dev
 ### Environment Variables
 ```
 GEMINI_API_KEY=          # Google Gemini API key (leave empty for mock)
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.6-flash   # gemini-2.0-flash is retired; gemini-3.8-flash gets 503 high-demand spikes
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1  # local dev
 # NEXT_PUBLIC_API_BASE_URL=https://pulse-ops-three.vercel.app/api/v1  # production
 

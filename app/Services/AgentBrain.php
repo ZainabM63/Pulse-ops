@@ -26,18 +26,19 @@ class AgentBrain
         $prompt = "{$systemPrompt}\n\nIncident Context:\n{$contextJson}\n\nUser Request: {$userMessage}\n\nRespond with a JSON array of tool calls to execute. Each object should have \"type\" (tool name) and \"input\" (parameters object). If no tools needed, return empty array.";
 
         try {
-            $response = Http::withOptions(['verify' => $this->tlsVerifyOption()])->withHeaders([
-                'Content-Type' => 'application/json',
-            ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
+            $payload = [
                 'contents' => [
                     ['role' => 'user', 'parts' => [['text' => $prompt]]],
                 ],
                 'generationConfig' => [
                     'temperature' => 0.3,
-                    'maxOutputTokens' => 1024,
+                    'maxOutputTokens' => 8192,
                 ],
                 'tools' => $toolSchemas ? [['functionDeclarations' => $toolSchemas]] : null,
-            ]);
+            ];
+
+            $response = $this->postWithRetry($url, $payload);
 
             if ($response->failed()) {
                 Log::error('Gemini API error', ['status' => $response->status(), 'body' => $response->body()]);
@@ -45,32 +46,32 @@ class AgentBrain
                 return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'http_'.$response->status()]);
             }
 
-            $body = $response->json();
-            $text = $body['candidates'][0]['content']['parts'][0]['text'] ?? null;
+            $toolCalls = $this->parseToolCalls($response);
 
-            if ($text) {
-                $parsed = $this->extractJsonArray($text);
-                if ($parsed !== null) {
-                    return $parsed;
+            // A healthy 200 can still be a degenerate response while the model
+            // is under heavy load (prose instead of a tool call, empty parts).
+            // Give the model exactly one more chance before declaring a
+            // fallback, so short-lived degradation doesn't silently switch to
+            // the keyword brain.
+            if ($toolCalls === null) {
+                Log::warning('Gemini response had no usable tool call, retrying once', ['status' => $response->status()]);
+
+                $response = $this->postWithRetry($url, $payload);
+
+                if ($response->failed()) {
+                    Log::error('Gemini API error', ['status' => $response->status(), 'body' => $response->body()]);
+
+                    return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'http_'.$response->status()]);
                 }
+
+                $toolCalls = $this->parseToolCalls($response);
             }
 
-            $functionCalls = $body['candidates'][0]['content']['parts'] ?? [];
-            $toolCalls = [];
-            foreach ($functionCalls as $part) {
-                if (isset($part['functionCall'])) {
-                    $toolCalls[] = [
-                        'type' => $part['functionCall']['name'],
-                        'input' => $part['functionCall']['args'] ?? [],
-                    ];
-                }
+            if ($toolCalls === null) {
+                return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'no_tool_calls_parsed']);
             }
 
-            if (! empty($toolCalls)) {
-                return $toolCalls;
-            }
-
-            return $this->decideFallback($userMessage, $incidentContext, $allowFallback, ['reason' => 'no_tool_calls_parsed']);
+            return $toolCalls;
         } catch (\Exception $e) {
             Log::error('AgentBrain error', ['message' => $e->getMessage()]);
 
@@ -119,21 +120,64 @@ class AgentBrain
         return PHP_OS_FAMILY !== 'Windows';
     }
 
+    /**
+     * POST to Gemini with a tiny backoff so transient capacity issues (503
+     * "high demand", 429 rate limits, connection blips) don't knock the agent
+     * into a keyword fallback. Non-transient 4xx responses (invalid key,
+     * unknown model) are returned immediately.
+     */
+    protected function postWithRetry(string $url, array $payload)
+    {
+        $attempt = 0;
+
+        while (true) {
+            $attempt++;
+
+            try {
+                $response = Http::withOptions(['verify' => $this->tlsVerifyOption()])->withHeaders([
+                    'Content-Type' => 'application/json',
+                ])->post($url, $payload);
+            } catch (\Exception $e) {
+                if ($attempt >= 3) {
+                    throw $e;
+                }
+
+                Log::warning('Gemini request failed, retrying', ['error' => $e->getMessage(), 'attempt' => $attempt]);
+                usleep(250000 * $attempt);
+
+                continue;
+            }
+
+            $status = $response->status();
+
+            if ($status === 429 && str_contains((string) $response->body(), 'RESOURCE_EXHAUSTED')) {
+                // Daily/quota exhaustion (e.g. free-tier 20 req/day ceiling).
+                // The API asks us to retry in ~24h, so re-posting is pointless.
+                return $response;
+            }
+
+            if ($attempt >= 3 || ($status < 500 && $status !== 429)) {
+                return $response;
+            }
+
+            Log::warning('Gemini transient failure, retrying', ['status' => $status, 'attempt' => $attempt]);
+            usleep(250000 * $attempt);
+        }
+    }
+
     public function summarize(string $userMessage, array $toolResults): string
     {
         $resultsJson = json_encode($toolResults, JSON_PRETTY_PRINT);
         $prompt = "You are PulseOps Agent. The user asked: \"{$userMessage}\"\n\nYou executed these actions and got these results:\n{$resultsJson}\n\nWrite a brief, professional summary of what was done and any recommendations. Keep it under 3 sentences.";
 
         try {
-            $response = Http::withOptions(['verify' => $this->tlsVerifyOption()])->withHeaders([
-                'Content-Type' => 'application/json',
-            ])->post("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
+            $response = $this->postWithRetry("https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}", [
                 'contents' => [
                     ['role' => 'user', 'parts' => [['text' => $prompt]]],
                 ],
                 'generationConfig' => [
                     'temperature' => 0.5,
-                    'maxOutputTokens' => 256,
+                    'maxOutputTokens' => 2048,
                 ],
             ]);
 
@@ -151,6 +195,37 @@ class AgentBrain
 
             return $this->fallbackSummarize($toolResults);
         }
+    }
+
+    /**
+     * Parse tool calls out of a Gemini generateContent response. Supports both
+     * the native functionCall parts and a text JSON array. Returns null when
+     * the response contained no usable tool call.
+     *
+     * @return array<int, array{type: string, input?: array}>|null
+     */
+    protected function parseToolCalls($response): ?array
+    {
+        $body = $response->json();
+        $parts = $body['candidates'][0]['content']['parts'] ?? [];
+
+        foreach ($parts as $part) {
+            if (isset($part['functionCall'])) {
+                return [
+                    [
+                        'type' => $part['functionCall']['name'],
+                        'input' => $part['functionCall']['args'] ?? [],
+                    ],
+                ];
+            }
+        }
+
+        $text = $parts[0]['text'] ?? null;
+        if ($text) {
+            return $this->extractJsonArray($text);
+        }
+
+        return null;
     }
 
     /**
