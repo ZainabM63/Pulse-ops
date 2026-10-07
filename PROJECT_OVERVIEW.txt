@@ -223,13 +223,3 @@ tests/{Unit,Feature}/          (14 files)
 frontend/src/{app,components,hooks,lib,types}
 README.md, memory.md (detailed project reference / session log)
 
---------------------------------------------------------------------------------
-10. KNOWN ISSUES (from memory.md)
---------------------------------------------------------------------------------
-- No server-side role enforcement; client-side route guards only
-- Some frontend components mix mock data with API data (TelemetryStream unused)
-- QuickActions Zoom/post-mortem/Slack partly client-side
-- scale_resources / rollback_deployment are stubs by design
-- Secrets present in .env (Gemini key, Reverb secret, commented DB password)
-
-================================================================================
