@@ -7,8 +7,6 @@
   [![Database](https://img.shields.io/badge/Database-SQLite_|_PostgreSQL-blue?style=for-the-badge)](#)
   [![Real-Time](https://img.shields.io/badge/WebSockets-Laravel_Reverb-emerald?style=for-the-badge)](#)
   [![AI](https://img.shields.io/badge/AI-Google_Gemini-purple?style=for-the-badge)](#)
-  [![License](https://img.shields.io/badge/License-MIT-slate?style=for-the-badge)](#)
-
   <br />
 
   <p>
