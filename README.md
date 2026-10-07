@@ -175,5 +175,3 @@ All endpoints live under `/api/v1` (47 routes total):
 ├── routes/                  api.php, web.php, channels.php
 └── tests/                   Unit + Feature (~80 tests)
 ```
-
-See `PROJECT_OVERVIEW.txt` for the full detailed feature breakdown and `memory.md` for the in-depth architecture reference.
